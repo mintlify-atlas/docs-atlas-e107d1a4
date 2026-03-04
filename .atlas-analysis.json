@@ -1,0 +1,158 @@
+{
+  "projectType": "saas",
+  "projectName": "DeployHub",
+  "projectDescription": "A cloud deployment platform for deploying static sites and Node.js applications with automated builds, custom domains, and subscription-based pricing.",
+  "theme": "aspen",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#60A5FA",
+  "darkColor": "#2563EB",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/deployments",
+              "features/github-integration",
+              "features/custom-domains",
+              "features/environment-variables",
+              "features/build-logs"
+            ]
+          },
+          {
+            "group": "Deployment Guide",
+            "pages": [
+              "deployment/static-sites",
+              "deployment/nodejs-apps",
+              "deployment/monorepo-support",
+              "deployment/branch-management"
+            ]
+          },
+          {
+            "group": "Project Management",
+            "pages": [
+              "projects/overview",
+              "projects/settings",
+              "projects/builds",
+              "projects/domains",
+              "projects/billing"
+            ]
+          },
+          {
+            "group": "Subscription & Billing",
+            "pages": [
+              "billing/plans",
+              "billing/usage-limits",
+              "billing/invoices",
+              "billing/payment-methods"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/auth/register",
+              "api/auth/login",
+              "api/auth/logout",
+              "api/auth/github-oauth",
+              "api/auth/refresh-token"
+            ]
+          },
+          {
+            "group": "Deployments",
+            "pages": [
+              "api/deployments/create",
+              "api/deployments/redeploy",
+              "api/deployments/list"
+            ]
+          },
+          {
+            "group": "Projects",
+            "pages": [
+              "api/projects/get-meta",
+              "api/projects/overview",
+              "api/projects/settings",
+              "api/projects/builds",
+              "api/projects/domains",
+              "api/projects/delete"
+            ]
+          },
+          {
+            "group": "User Management",
+            "pages": [
+              "api/user/profile",
+              "api/user/dashboard",
+              "api/user/usage",
+              "api/user/invoices",
+              "api/user/repositories"
+            ]
+          },
+          {
+            "group": "Subscriptions",
+            "pages": [
+              "api/subscriptions/init",
+              "api/subscriptions/verify"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Deploy static sites and Node.js applications from GitHub repositories",
+    "Automated Docker-based builds with custom build commands and environment variables",
+    "Custom subdomain allocation with optional custom domain support",
+    "GitHub OAuth integration for seamless authentication and private repository access",
+    "Real-time build logs and deployment status tracking",
+    "Subscription-based pricing with free and pro plans",
+    "Project usage analytics and billing dashboards",
+    "Monorepo support with folder-based deployments",
+    "Branch-specific deployments with commit SHA tracking"
+  ],
+  "publicApiSurface": [
+    "POST /api/register/init - Initialize user registration",
+    "POST /api/register/verify - Verify user registration with OTP",
+    "POST /api/login - User login",
+    "GET /api/refresh/refreshtoken - Refresh authentication token",
+    "POST /api/logout - User logout",
+    "GET /api/auth/github - GitHub OAuth login",
+    "GET /api/auth/github/callback - GitHub OAuth callback",
+    "GET /api/me - Get current user information",
+    "POST /api/user/profile-pic - Upload profile picture",
+    "PUT /api/user/fullname - Update user full name",
+    "GET /api/invoice - Get user invoices",
+    "GET /api/user/gitrepos - Get user GitHub repositories",
+    "GET /api/projects - Get user projects",
+    "GET /api/dashboard - Get dashboard statistics",
+    "GET /api/usage - Get usage statistics",
+    "POST /api/deployment - Create new deployment",
+    "POST /api/redeploy/:projectId - Redeploy existing project",
+    "POST /api/subscription/init - Initialize subscription payment",
+    "POST /api/subscription/verify - Verify subscription payment",
+    "GET /api/projects/:id/meta - Get project metadata",
+    "GET /api/projects/:id/overview - Get project overview",
+    "GET /api/projects/:id/settings - Get project settings",
+    "PATCH /api/projects/:id/settings/general - Update general settings",
+    "PATCH /api/projects/:id/settings/build - Update build settings",
+    "PATCH /api/projects/:id/settings/env - Update environment variables",
+    "DELETE /api/projects/:id - Delete project",
+    "GET /api/projects/:id/builds - Get project builds",
+    "GET /api/projects/:id/builds/:buildId - Get specific build details",
+    "GET /api/projects/:id/billing - Get project billing information",
+    "GET /api/projects/:id/domains - Get project domains",
+    "PATCH /api/projects/:id/domains/subdomain - Update project subdomain"
+  ]
+}
