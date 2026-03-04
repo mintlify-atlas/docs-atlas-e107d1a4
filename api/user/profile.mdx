@@ -229,3 +229,188 @@ Updates the user's full name.
 }
 ```
 </ResponseExample>
+
+---
+
+## Initialize Email Verification Payment
+
+<RequestExample>
+```bash
+POST /api/me/init
+```
+</RequestExample>
+
+Initiates a Razorpay payment order for email verification. Users must pay ₹99 to verify their email address.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">
+  Razorpay order ID
+</ResponseField>
+
+<ResponseField name="amount" type="number">
+  Payment amount in paise (9900 = ₹99)
+</ResponseField>
+
+<ResponseField name="currency" type="string">
+  Currency code (INR)
+</ResponseField>
+
+<ResponseField name="receipt" type="string">
+  Order receipt ID
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "id": "order_NXHk3Mxl9rDEJZ",
+  "amount": 9900,
+  "currency": "INR",
+  "receipt": "order_rcptid_0.123456789"
+}
+```
+</ResponseExample>
+
+### Implementation Details
+
+- Creates a Razorpay order with amount ₹99 (9900 paise)
+- Customer details (email, name) are automatically included
+- Creates a `VerifyuserPayment` record with status `pending`
+- Order ID is stored for verification
+
+### Error Responses
+
+<ResponseExample>
+```json
+{
+  "error": "Internal Server Error"
+}
+```
+</ResponseExample>
+
+---
+
+## Verify Email Verification Payment
+
+<RequestExample>
+```bash
+POST /api/me/verify
+```
+</RequestExample>
+
+Verifies the Razorpay payment signature and marks the user's email as verified.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="razorpay_payment_id" type="string" required>
+  Payment ID from Razorpay checkout
+</ParamField>
+
+<ParamField body="razorpay_order_id" type="string" required>
+  Order ID from the init endpoint
+</ParamField>
+
+<ParamField body="razorpay_signature" type="string" required>
+  HMAC signature from Razorpay for verification
+</ParamField>
+
+<RequestExample>
+```json
+{
+  "razorpay_payment_id": "pay_NXHk3Mxl9rDEJZ",
+  "razorpay_order_id": "order_NXHk3Mxl9rDEJZ",
+  "razorpay_signature": "9ef9e5c5c9c5e5c5c9c5e5c5c9c5e5c5"
+}
+```
+</RequestExample>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if verification was successful
+</ResponseField>
+
+<ResponseField name="verifed" type="boolean">
+  Indicates if the user is now verified
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "verifed": true
+}
+```
+</ResponseExample>
+
+### Implementation Details
+
+- Verifies payment signature using HMAC-SHA256
+- Checks if order exists and matches user
+- Prevents duplicate verification (checks if status is already `completed`)
+- Updates user's `verified` field to `true`
+- Sets `verifiedAt` timestamp
+- Updates order status to `completed`
+
+### Error Responses
+
+<ResponseExample>
+```json
+{
+  "message": "required details fro verify payment"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json
+{
+  "success": false,
+  "message": "Payment verification failed!"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json
+{
+  "message": "User not found!"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json
+{
+  "message": "something went wrong! PLease Contact your team"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json
+{
+  "message": "Your Oder ALready PRocessed"
+}
+```
+</ResponseExample>
+
+<Warning>
+The signature verification is critical for security. Never skip this step or accept unverified payments.
+</Warning>
