@@ -1,0 +1,416 @@
+---
+title: Monorepo & Folder Deployments
+description: Deploy specific folders from monorepos using sparse checkout
+---
+
+DeployHub supports deploying specific folders from monorepos or large repositories, allowing you to deploy only the code you need without cloning the entire repository.
+
+## Overview
+
+Folder-based deployments use Git sparse checkout to clone only specific directories, making deployments faster and more efficient for monorepo structures.
+
+## Configuration
+
+Enable folder deployment by setting `isFolder: true` and specifying the folder name:
+
+```json
+{
+  "isFolder": true,
+  "folderName": "packages/web-app"
+}
+```
+
+## Validation Rules
+
+<Warning>
+**Folder deployment requirements:**
+- `isFolder` must be a boolean value
+- When `isFolder` is `true`, `folderName` is required
+- `folderName` must be a non-empty string
+</Warning>
+
+From the validation schema:
+
+```javascript
+body('isFolder')
+  .notEmpty()
+  .withMessage("is folder is required")
+  .isBoolean()
+  .withMessage('only boolean')
+
+body('folderName')
+  .if(body('isFolder').equals(true))
+  .notEmpty()
+  .withMessage("folderName is required")
+  .isString()
+  .withMessage('folder name must be a string')
+```
+
+## Database Schema
+
+Folder settings are stored in the project model:
+
+```javascript
+settings: {
+  repoBranchName: {
+    type: String,
+    default: "main"
+  },
+  folder: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    name: {
+      type: String,
+      validate: {
+        validator: function (value) {
+          if (this.folder?.enabled && !value) {
+            return false;
+          }
+          return true;
+        },
+        message: "Folder name is required when folder is enabled"
+      }
+    }
+  }
+}
+```
+
+## How It Works
+
+<Steps>
+  <Step title="Sparse Checkout Initialization">
+    DeployHub clones the repository with blob filtering and enables sparse checkout:
+
+    ```bash
+    git clone -b ${branchname} --filter=blob:none --sparse ${repoUrl} ${buildPath}
+    ```
+
+    This downloads only the repository structure, not file contents.
+  </Step>
+
+  <Step title="Configure Sparse Checkout">
+    Sets which folder to checkout:
+
+    ```bash
+    git -C ${buildPath} sparse-checkout set ${folderName}
+    ```
+
+    Only files in the specified folder are downloaded.
+  </Step>
+
+  <Step title="Move Folder Contents">
+    The folder contents are moved to the build root:
+
+    ```javascript
+    const folderPath = path.join(buildFilePath, folderName);
+    if (fs.existsSync(folderPath)) {
+      const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const src = path.join(folderPath, entry.name);
+        const dest = path.join(buildFilePath, entry.name);
+        await fs.promises.cp(src, dest, { recursive: true, force: true });
+      }
+      await fs.promises.rm(folderPath, { recursive: true, force: true });
+    }
+    ```
+  </Step>
+
+  <Step title="Build and Deploy">
+    The folder contents are built and deployed as if they were the repository root.
+  </Step>
+</Steps>
+
+## Complete Build Worker Implementation
+
+From `buildworker.js`:
+
+```javascript
+const branchname = projectData.settings.repoBranchName;
+const isFolder = projectData.settings.folder.enabled;
+const folderName = projectData.settings.folder?.name;
+const repoUrl = projectData.repoLink;
+
+let repoUrlWithAuth;
+if (usergithubAccessToken) {
+  repoUrlWithAuth = `https://${usergithubAccessToken}@github.com/${owner}/${repo}.git`;
+} else {
+  repoUrlWithAuth = `https://github.com/${owner}/${repo}.git`;
+}
+
+if (isFolder === true) {
+  execSync(
+    `git clone -b ${branchname} --filter=blob:none --sparse ${repoUrlWithAuth} ${buildFilePath}`,
+    { stdio: "inherit" },
+  );
+  execSync(`git -C ${buildFilePath} sparse-checkout set ${folderName}`, {
+    stdio: "inherit",
+  });
+
+  const folderPath = path.join(buildFilePath, folderName);
+  if (fs.existsSync(folderPath)) {
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const src = path.join(folderPath, entry.name);
+      const dest = path.join(buildFilePath, entry.name);
+      await fs.promises.cp(src, dest, { recursive: true, force: true });
+    }
+    await fs.promises.rm(folderPath, { recursive: true, force: true });
+  }
+} else {
+  execSync(`git clone -b ${branchname} ${repoUrlWithAuth} ${buildFilePath}`, {
+    stdio: "inherit",
+  });
+}
+```
+
+## Deployment Examples
+
+### Static Site in Monorepo
+
+```json
+{
+  "projectId": "507f1f77bcf86cd799439011",
+  "name": "frontend-app",
+  "codeLink": "https://github.com/company/monorepo.git",
+  "projectType": "static",
+  "buildCommand": "npm run build",
+  "publishDir": "dist",
+  "branchname": "main",
+  "isFolder": true,
+  "folderName": "apps/frontend"
+}
+```
+
+### Node.js API in Monorepo
+
+```json
+{
+  "projectId": "507f1f77bcf86cd799439011",
+  "name": "api-service",
+  "codeLink": "https://github.com/company/monorepo.git",
+  "projectType": "node",
+  "startCommand": "node server.js",
+  "port": 3000,
+  "branchname": "main",
+  "isFolder": true,
+  "folderName": "services/api"
+}
+```
+
+### Nested Folder Structure
+
+```json
+{
+  "isFolder": true,
+  "folderName": "packages/core/ui-components"
+}
+```
+
+## Monorepo Structures Supported
+
+### Nx Workspace
+
+```
+monorepo/
+├── apps/
+│   ├── web/          ← Deploy this
+│   └── api/          ← Or this
+├── libs/
+│   └── shared/
+└── package.json
+```
+
+```json
+{
+  "isFolder": true,
+  "folderName": "apps/web"
+}
+```
+
+### Turborepo
+
+```
+monorepo/
+├── apps/
+│   ├── docs/         ← Deploy this
+│   └── web/
+├── packages/
+│   └── ui/
+└── turbo.json
+```
+
+```json
+{
+  "isFolder": true,
+  "folderName": "apps/docs"
+}
+```
+
+### Lerna
+
+```
+monorepo/
+├── packages/
+│   ├── client/       ← Deploy this
+│   ├── server/
+│   └── shared/
+└── lerna.json
+```
+
+```json
+{
+  "isFolder": true,
+  "folderName": "packages/client"
+}
+```
+
+### Yarn Workspaces
+
+```
+monorepo/
+├── workspace-a/      ← Deploy this
+├── workspace-b/
+└── package.json
+```
+
+```json
+{
+  "isFolder": true,
+  "folderName": "workspace-a"
+}
+```
+
+## Updating Folder Settings
+
+Update folder configuration via the settings API:
+
+```bash
+curl -X PATCH https://api.deployhub.cloud/api/projects/:id/settings/general \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "folder": {
+      "enabled": true,
+      "name": "packages/new-app"
+    }
+  }'
+```
+
+<Warning>
+Changing folder settings requires a redeployment to take effect.
+</Warning>
+
+## Benefits
+
+### Faster Cloning
+
+Sparse checkout only downloads the files you need:
+
+- **Full clone**: Downloads entire repository history and all files
+- **Sparse checkout**: Downloads only specified folder with `--filter=blob:none`
+
+### Reduced Build Time
+
+Smaller directory = faster builds:
+
+```
+Full repo: 2GB, 5 minutes to clone
+Sparse checkout: 50MB, 30 seconds to clone
+```
+
+### Lower Resource Usage
+
+Less disk space and memory required for builds.
+
+## Redeployment with Folders
+
+The redeploy worker also supports folder deployments:
+
+```javascript
+const isFolder = projectData.settings.folder.enabled;
+const folderName = projectData.settings.folder?.name;
+
+if (isFolder === true) {
+  execSync(
+    `git clone -b ${branchname} --filter=blob:none --sparse ${repoUrlWithAuth} ${buildFilePath}`,
+    { stdio: "inherit" },
+  );
+  execSync(`git -C ${buildFilePath} sparse-checkout set ${folderName}`, {
+    stdio: "inherit",
+  });
+  
+  // Move folder contents to root...
+}
+```
+
+## Troubleshooting
+
+### Folder Not Found
+
+<Warning>
+Ensure the folder path is correct and exists in your repository.
+</Warning>
+
+Check your repository structure:
+
+```bash
+git ls-tree -r --name-only HEAD
+```
+
+### Build Fails After Folder Deploy
+
+- Verify `package.json` exists in the folder
+- Check that all dependencies are properly referenced
+- Ensure relative imports work from the folder root
+
+### Sparse Checkout Not Working
+
+- Verify Git version supports sparse checkout (Git 2.25+)
+- Check that `--filter=blob:none` is supported
+- Ensure folder name doesn't have trailing slashes
+
+### Dependencies in Parent Directory
+
+If your folder needs files from parent directories:
+
+```javascript
+// Not supported:
+folderName: "apps/web"
+// Needs: ../../shared/config
+
+// Solution: Include parent in folder structure or
+// use path aliases in your build config
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Self-Contained Folders" icon="box">
+    Ensure each deployable folder has its own `package.json` and dependencies
+  </Card>
+  <Card title="Relative Imports" icon="arrow-right-arrow-left">
+    Use path aliases for shared code instead of `../../` imports
+  </Card>
+  <Card title="Build Scripts" icon="screwdriver-wrench">
+    Keep build commands in the folder's `package.json`
+  </Card>
+  <Card title="Environment Variables" icon="key">
+    Use folder-specific env vars to avoid conflicts
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Branch Management" icon="code-branch" href="/deployment/branch-management">
+    Configure branch selection and commit tracking
+  </Card>
+  <Card title="Static Sites" icon="browser" href="/deployment/static-sites">
+    Deploy React, Vue, Angular apps
+  </Card>
+  <Card title="Node.js Apps" icon="node-js" href="/deployment/nodejs-apps">
+    Deploy Express, Nest.js backends
+  </Card>
+</CardGroup>

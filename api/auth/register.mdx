@@ -1,0 +1,183 @@
+---
+title: 'Register'
+description: 'Email and password registration with OTP verification'
+---
+
+## POST /api/register/init
+
+Initiates user registration by sending a 6-digit OTP to the provided email address. The OTP expires in 10 minutes.
+
+### Request Body
+
+<ParamField body="fullname" type="string" required>
+  User's full name
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Valid email address (will be normalized)
+  
+  **Validation:** Must be a valid email format
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User password
+  
+  **Validation Rules:**
+  - Minimum 8 characters
+  - At least one uppercase letter
+  - At least one lowercase letter
+  - At least one number
+  - At least one special character (@$!%*?&)
+  
+  **Pattern:** `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$`
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string">
+  Success or error message
+</ResponseField>
+
+### Status Codes
+
+- `200` - OTP sent successfully
+- `400` - Validation error (invalid email format, weak password, etc.)
+- `409` - Account already exists with this email OR user already initiated registration (pending OTP verification)
+- `500` - Failed to send OTP
+
+### Example Request
+
+```bash
+curl -X POST https://api.deployhub.cloud/api/register/init \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fullname": "John Doe",
+    "email": "john@example.com",
+    "password": "SecurePass123!"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "message": "Otp Sent Success"
+}
+```
+
+### Error Responses
+
+<CodeGroup>
+```json 400 - Validation Error
+{
+  "message": "Password must be at least 8 characters and include uppercase, lowercase, number, and special character"
+}
+```
+
+```json 409 - User Already Exists
+{
+  "message": "Account Already Exist with this email"
+}
+```
+
+```json 409 - Pending Verification
+{
+  "message": "user already exist! please validate otp and create account"
+}
+```
+
+```json 500 - Server Error
+{
+  "error": "Failed To send otp"
+}
+```
+</CodeGroup>
+
+---
+
+## POST /api/register/verify
+
+Completes user registration by verifying the OTP sent to the email address. Creates the user account and subscription upon successful verification.
+
+### Request Body
+
+<ParamField body="email" type="string" required>
+  Email address used during registration initialization
+  
+  **Validation:** Must be a valid email format
+</ParamField>
+
+<ParamField body="otp" type="string" required>
+  6-digit numeric OTP code received via email
+  
+  **Validation:**
+  - Must be exactly 6 characters
+  - Must be numeric only
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string">
+  Success or error message
+</ResponseField>
+
+### Status Codes
+
+- `201` - User registered successfully
+- `400` - Validation error or invalid/expired OTP
+- `404` - Registration not initiated for this email
+- `500` - Internal server error
+
+### Example Request
+
+```bash
+curl -X POST https://api.deployhub.cloud/api/register/verify \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "otp": "123456"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "message": "User register Success"
+}
+```
+
+### Error Responses
+
+<CodeGroup>
+```json 400 - Invalid OTP
+{
+  "message": "Invalid Otp Or Expired"
+}
+```
+
+```json 400 - Validation Error
+{
+  "message": "Otp Length is 6 and should be number"
+}
+```
+
+```json 404 - Not Initiated
+{
+  "message": "you not init register!"
+}
+```
+
+```json 500 - Server Error
+{
+  "error": "Internal Server Error"
+}
+```
+</CodeGroup>
+
+### Notes
+
+- OTP codes expire after 10 minutes
+- After successful verification, a welcome email is queued for delivery
+- A subscription record is automatically created for the new user
+- Temporary user data is removed after successful verification

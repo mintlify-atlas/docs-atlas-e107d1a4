@@ -1,0 +1,205 @@
+---
+title: 'Redeploy Project'
+api: 'POST /api/redeploy/:projectId'
+---
+
+Redeploys an existing project by triggering a new deployment with the current configuration. This endpoint:
+- Validates the project exists and is not deleted
+- Updates project status to `building`
+- Adds a redeployment job to the queue
+
+## Authentication
+
+Requires JWT authentication via `verifyJWT` middleware.
+
+## Path Parameters
+
+<ParamField path="projectId" type="string" required>
+  MongoDB ObjectId of the project to redeploy. Must be a valid ObjectId format.
+</ParamField>
+
+## Request Body
+
+No request body required. All deployment configuration is read from the existing project record.
+
+## Validation
+
+The endpoint validates:
+- `projectId` must be a valid MongoDB ObjectId format
+- Project must exist in the database
+- Project status must not be `deleted`
+
+## Response
+
+<ResponseField name="message" type="string">
+  Confirmation message indicating redeployment was initiated.
+</ResponseField>
+
+### Success Response
+
+```json
+{
+  "message": "ReDeployment initiated"
+}
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Detailed error message for specific failures.
+</ResponseField>
+
+### Common Errors
+
+- **400 Bad Request**: `"Invalid projectId format"` - ProjectId is not a valid MongoDB ObjectId
+- **404 Not Found**: `"Invalid ProjectId"` - Project not found or has been deleted
+- **500 Internal Server Error**: `"Internal server Error"` - Server processing error
+
+## Redeployment Queue
+
+When redeployment is initiated:
+1. Project status is updated to `building`
+2. Project is saved to database
+3. ProjectId is added to `reDeploymentQueue`
+4. Redeployment worker processes the job asynchronously
+
+The redeployment worker will:
+- Use existing project configuration (buildCommand, startCommand, env, etc.)
+- Fetch latest code from the configured branch
+- Create a new build record
+- Execute the build process
+- Update project status based on build result
+
+## Request Examples
+
+### Basic Redeploy
+
+```bash
+curl -X POST https://api.deployhub.com/api/redeploy/507f1f77bcf86cd799439011 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### With Axios
+
+```javascript
+import axios from 'axios';
+
+const redeployProject = async (projectId) => {
+  try {
+    const response = await axios.post(
+      `https://api.deployhub.com/api/redeploy/${projectId}`,
+      {},
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      }
+    );
+    console.log(response.data.message);
+  } catch (error) {
+    console.error('Redeployment failed:', error.response.data);
+  }
+};
+
+redeployProject('507f1f77bcf86cd799439011');
+```
+
+### With Fetch API
+
+```javascript
+const redeployProject = async (projectId) => {
+  const response = await fetch(
+    `https://api.deployhub.com/api/redeploy/${projectId}`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  const data = await response.json();
+  
+  if (!response.ok) {
+    throw new Error(data.error || data.message);
+  }
+  
+  return data;
+};
+```
+
+## Response Example
+
+### Successful Redeployment
+
+```json
+{
+  "message": "ReDeployment initiated"
+}
+```
+
+### Invalid ProjectId Format
+
+```json
+{
+  "error": "Invalid projectId format"
+}
+```
+
+### Project Not Found
+
+```json
+{
+  "message": "Invalid ProjectId"
+}
+```
+
+## Use Cases
+
+### Manual Redeploy
+
+Trigger a manual redeployment to:
+- Deploy latest code changes from the repository
+- Retry a failed deployment
+- Apply new environment variables (must be updated separately via settings endpoint)
+- Rebuild after infrastructure updates
+
+### CI/CD Integration
+
+Integrate with CI/CD pipelines:
+```yaml
+# GitHub Actions example
+- name: Trigger Redeploy
+  run: |
+    curl -X POST https://api.deployhub.com/api/redeploy/${{ secrets.PROJECT_ID }} \
+      -H "Authorization: Bearer ${{ secrets.DEPLOYHUB_TOKEN }}"
+```
+
+### Webhook Automation
+
+While DeployHub supports GitHub webhooks for automatic deployments, this endpoint can be used for:
+- Manual deployments outside of git pushes
+- Scheduled redeployments
+- Deployments triggered by external systems
+
+## Important Notes
+
+- Redeployment uses the existing project configuration
+- To change build settings, update via the project settings endpoint first
+- Project status changes to `building` immediately
+- Actual build is processed asynchronously by the redeployment worker
+- No new subdomain is generated - existing subdomain is retained
+- Build history is preserved - a new build record is created
+- Environment variables from the project configuration are used
+
+## Related Endpoints
+
+- [Create Deployment](/api/deployments/create) - Create initial deployment
+- [List Projects](/api/deployments/list) - Get all user projects
+- Update Project Settings - Modify project configuration before redeploying
+- Get Project Builds - View build history and status

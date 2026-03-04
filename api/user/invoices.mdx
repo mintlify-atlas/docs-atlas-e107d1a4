@@ -1,0 +1,167 @@
+---
+title: "Billing Invoices"
+description: "Retrieve billing invoices and completed orders"
+---
+
+## Get Invoices
+
+<RequestExample>
+```bash
+GET /api/invoice
+```
+</RequestExample>
+
+Retrieves all completed billing invoices for the authenticated user.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="array">
+  Array of completed order invoices
+  
+  <Expandable title="invoice properties">
+    <ResponseField name="_id" type="string">
+      Invoice unique identifier
+    </ResponseField>
+    
+    <ResponseField name="userid" type="string">
+      User ID associated with this invoice
+    </ResponseField>
+    
+    <ResponseField name="orderid" type="string">
+      Order identifier from payment provider
+    </ResponseField>
+    
+    <ResponseField name="months" type="number">
+      Number of months for the subscription period
+    </ResponseField>
+    
+    <ResponseField name="amount" type="number">
+      Payment amount for the order
+    </ResponseField>
+    
+    <ResponseField name="plan" type="string">
+      Subscription plan name (e.g., `free`, `pro`, `business`)
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Payment status (e.g., `completed`, `pending`, `failed`)
+    </ResponseField>
+    
+    <ResponseField name="projectid" type="string">
+      Associated project ID if the invoice is project-specific
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      Invoice creation timestamp
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string">
+      Last update timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "data": [
+    {
+      "_id": "65f1a3b2c4d5e6f7g8h9i0j1",
+      "userid": "507f1f77bcf86cd799439011",
+      "orderid": "order_NXvZ9J8Kq3mL4pR7",
+      "months": 12,
+      "amount": 299,
+      "plan": "pro",
+      "status": "completed",
+      "projectid": "507f1f77bcf86cd799439012",
+      "createdAt": "2024-03-01T10:30:00.000Z",
+      "updatedAt": "2024-03-01T10:30:00.000Z"
+    },
+    {
+      "_id": "65f1a3b2c4d5e6f7g8h9i0j2",
+      "userid": "507f1f77bcf86cd799439011",
+      "orderid": "order_MWuY8I7Jp2kK3oQ6",
+      "months": 1,
+      "amount": 29,
+      "plan": "pro",
+      "status": "completed",
+      "projectid": "507f1f77bcf86cd799439013",
+      "createdAt": "2024-02-01T14:15:00.000Z",
+      "updatedAt": "2024-02-01T14:15:00.000Z"
+    },
+    {
+      "_id": "65f1a3b2c4d5e6f7g8h9i0j3",
+      "userid": "507f1f77bcf86cd799439011",
+      "orderid": "order_LVtX7H6Io1jJ2nP5",
+      "months": 6,
+      "amount": 599,
+      "plan": "business",
+      "status": "completed",
+      "projectid": "507f1f77bcf86cd799439014",
+      "createdAt": "2024-01-15T09:45:00.000Z",
+      "updatedAt": "2024-01-15T09:45:00.000Z"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+## Implementation Details
+
+### Data Source
+
+Invoices are retrieved from the `CompletedOrder` collection, which stores all completed payment transactions.
+
+### CompletedOrder Schema
+
+The CompletedOrder model includes the following fields:
+
+```javascript
+{
+  userid: ObjectId,        // Reference to User
+  orderid: String,         // Payment provider order ID
+  months: Number,          // Subscription duration
+  amount: Number,          // Payment amount
+  plan: String,           // Plan name
+  status: String,         // Payment status
+  projectid: ObjectId,    // Reference to Project (optional)
+  createdAt: Date,        // Auto-generated timestamp
+  updatedAt: Date         // Auto-generated timestamp
+}
+```
+
+### Query Logic
+
+- Filters invoices by the authenticated user's ID
+- Returns all completed orders associated with the user
+- Includes both project-specific subscriptions and account-level purchases
+- Orders are returned in database order (typically creation order)
+
+### Use Cases
+
+- Display billing history to users
+- Generate receipts for completed payments
+- Track subscription renewals
+- Audit payment transactions
+- Support billing inquiries
+
+### Related Models
+
+- **User**: Referenced by `userid` field
+- **Project**: Referenced by `projectid` field (when invoice is project-specific)
+
+### Error Response
+
+<ResponseExample>
+```json
+{
+  "error": "Internal Server Error"
+}
+```
+</ResponseExample>

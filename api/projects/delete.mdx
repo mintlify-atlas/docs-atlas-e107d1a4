@@ -1,0 +1,161 @@
+---
+title: "Delete Project"
+api: "DELETE /api/projects/:id"
+description: "Soft delete a project by marking its status as deleted"
+---
+
+## Authentication
+
+This endpoint requires JWT authentication via the `verifyJWT` middleware. Include your access token in the Authorization header.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project to delete (MongoDB ObjectId)
+</ParamField>
+
+## Behavior
+
+This endpoint performs a **soft delete** by setting the project's `status` field to `deleted`. The project document remains in the database but is excluded from all queries that filter by status.
+
+### What Happens When You Delete a Project
+
+- Project status is changed to `deleted`
+- Project no longer appears in project lists
+- Project endpoints return 404 for this project ID
+- Associated resources (builds, deployments) remain in the database
+- The subdomain is not immediately released and cannot be reused
+- **This operation cannot be undone through the API**
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Indicates whether the deletion was successful
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Confirmation message: "Project deleted"
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X DELETE "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+## Example Response
+
+```json
+{
+  "success": true,
+  "message": "Project deleted"
+}
+```
+
+## Error Responses
+
+<ResponseField name="404 Not Found">
+  Returned when:
+  - Project with the specified ID doesn't exist
+  - Project doesn't belong to the authenticated user
+  - Project has already been deleted
+  
+  ```json
+  {
+    "success": false,
+    "message": "Project not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500 Internal Server Error">
+  Returned when a server error occurs during deletion
+  
+  ```json
+  {
+    "success": false,
+    "message": "Server error"
+  }
+  ```
+</ResponseField>
+
+## Implementation Notes
+
+### Soft Delete vs Hard Delete
+
+This endpoint implements soft deletion:
+- **Soft delete:** Sets `status: 'deleted'`, data remains in database
+- **Hard delete:** Would permanently remove the document (not implemented)
+
+### Why Soft Delete?
+
+1. **Data Recovery:** Allows potential recovery of accidentally deleted projects
+2. **Audit Trail:** Maintains historical records for billing and analytics
+3. **Related Data:** Preserves relationships with builds and deployments
+4. **Billing:** Ensures accurate billing history and dispute resolution
+
+### Ownership Verification
+
+The endpoint includes three security checks:
+1. Project must exist (`_id` match)
+2. Project must belong to the authenticated user (`owner` match)
+3. Project must not already be deleted (`status: { $ne: 'deleted' }`)
+
+Attempting to delete a project that doesn't meet all criteria returns 404.
+
+### Side Effects
+
+Deleting a project does **not** automatically:
+- Stop running containers (requires separate cleanup job)
+- Delete build artifacts or Docker images
+- Remove DNS records or SSL certificates
+- Release the subdomain for reuse
+- Delete associated build documents
+- Trigger webhook notifications
+
+These cleanup operations may be handled by background jobs or administrative processes.
+
+### Querying Deleted Projects
+
+All project query endpoints include `status: { $ne: 'deleted' }` filter, which means:
+- Deleted projects are invisible to the user
+- They don't appear in project lists
+- Individual project endpoints return 404
+- Subdomains of deleted projects return 404 on the routing layer
+
+## Best Practices
+
+### Before Deleting
+
+1. **Backup Important Data:** Export environment variables, build logs, or configurations
+2. **Update DNS:** If using a custom domain, update DNS to prevent downtime
+3. **Notify Team:** Inform team members if it's a shared project
+4. **Check Dependencies:** Ensure no other services depend on this deployment
+
+### Confirmation Flow
+
+For user-facing applications, implement a confirmation dialog:
+
+```javascript
+const confirmed = confirm(
+  `Are you sure you want to delete "${projectName}"? This action cannot be undone.`
+);
+
+if (confirmed) {
+  await fetch(`/api/projects/${projectId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+}
+```
+
+### Alternative: Stopping a Project
+
+If you want to temporarily disable a project without deleting it, consider updating the project status to `stopped` through a settings endpoint (if available), or simply don't delete it.
+
+## Source Reference
+
+`backend/src/controllers/slices/Project/settings.js:125`

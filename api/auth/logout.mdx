@@ -1,0 +1,89 @@
+---
+title: 'Logout'
+description: 'Invalidate user session and clear authentication cookies'
+---
+
+## POST /api/logout
+
+Logs out the authenticated user by invalidating their refresh token and clearing authentication cookies.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+  
+  Format: `Bearer <access_token>`
+</ParamField>
+
+### Authentication
+
+This endpoint requires a valid JWT access token. The user is identified from the token payload.
+
+### Response
+
+<ResponseField name="message" type="string">
+  Success message
+</ResponseField>
+
+<ResponseField name="success" type="boolean">
+  Indicates successful logout
+</ResponseField>
+
+### Cookies Cleared
+
+<ResponseField name="refreshToken" type="cookie">
+  The refresh token cookie is cleared from the client
+</ResponseField>
+
+### Status Codes
+
+- `200` - Logout successful
+- `401` - Unauthorized (invalid or missing access token)
+- `500` - Internal server error
+
+### Example Request
+
+```bash
+curl -X POST https://api.deployhub.cloud/api/logout \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Example Response
+
+```json
+{
+  "message": "Logout Success",
+  "success": true
+}
+```
+
+### Error Responses
+
+<CodeGroup>
+```json 401 - Unauthorized
+{
+  "message": "Unauthorized"
+}
+```
+
+```json 500 - Server Error
+{
+  "error": "Internal server Error"
+}
+```
+</CodeGroup>
+
+### Process Flow
+
+1. Validates JWT access token from Authorization header
+2. Retrieves authenticated user from token payload
+3. Clears the user's refresh token in the database
+4. Clears the `refreshToken` cookie from the client
+5. Returns success response
+
+### Notes
+
+- After logout, both the access token and refresh token become invalid
+- The client should discard any stored tokens after receiving a successful logout response
+- The refresh token is set to an empty string in the database
+- The operation uses `validateBeforeSave: false` for performance

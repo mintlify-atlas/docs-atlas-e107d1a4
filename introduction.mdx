@@ -1,0 +1,235 @@
+---
+title: Introduction
+description: Deploy static sites and Node.js applications with automated builds, custom domains, and real-time monitoring
+mode: custom
+---
+
+<div className="relative overflow-hidden bg-gradient-to-br from-[#3B82F6] via-[#2563EB] to-[#1D4ED8] dark:from-[#1e3a8a] dark:via-[#1e40af] dark:to-[#1d4ed8]">
+  <div className="absolute inset-0 bg-black/20"></div>
+  <div className="relative max-w-7xl mx-auto px-6 py-20 lg:py-28">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
+          Welcome to DeployHub
+        </h1>
+        <p className="text-lg sm:text-xl text-white/90 mb-8 max-w-2xl">
+          Deploy your GitHub repositories in minutes with automated Docker builds, custom subdomains, and real-time build monitoring. Built for developers who need fast, reliable deployments.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a
+            href="/quickstart"
+            className="inline-flex items-center px-6 py-3 rounded-lg bg-white text-[#3B82F6] font-semibold hover:bg-gray-100 transition-colors"
+          >
+            Get Started
+            <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </a>
+          <a
+            href="/api/auth/register"
+            className="inline-flex items-center px-6 py-3 rounded-lg border-2 border-white/30 bg-white/10 text-white font-semibold hover:bg-white/20 transition-colors"
+          >
+            API Reference
+          </a>
+        </div>
+      </div>
+      <div className="lg:col-span-5 hidden lg:block">
+        <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-green-400"></div>
+              <div className="flex-1 h-4 bg-white/20 rounded"></div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-blue-400"></div>
+              <div className="flex-1 h-4 bg-white/20 rounded w-3/4"></div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-yellow-400 animate-pulse"></div>
+              <div className="flex-1 h-4 bg-white/20 rounded w-2/3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Quick Start
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Get your first project deployed in minutes
+  </p>
+  
+  <Steps>
+    <Step title="Create your account">
+      Sign up with GitHub OAuth to automatically connect your repositories. DeployHub will securely access your repos for seamless deployments.
+      
+      ```bash
+      curl -X GET https://api.deployhub.com/api/auth/github
+      ```
+    </Step>
+    
+    <Step title="Select a repository">
+      Choose any public or private repository from your GitHub account. DeployHub supports both static sites and Node.js applications.
+      
+      <Note>
+        You can deploy from any branch and even select a specific folder within a monorepo.
+      </Note>
+    </Step>
+    
+    <Step title="Configure your build">
+      Set your build command, environment variables, and deployment settings. DeployHub will automatically detect your project type.
+      
+      ```json
+      {
+        "projectType": "static",
+        "buildCommand": "npm run build",
+        "publishDir": "dist",
+        "env": {
+          "VITE_API_URL": "https://api.example.com"
+        }
+      }
+      ```
+    </Step>
+    
+    <Step title="Deploy">
+      Click deploy and watch your build logs in real-time. Your site will be live on a custom subdomain within minutes.
+      
+      <Accordion title="Example build output">
+        ```
+        ✓ Cloning repository from GitHub...
+        ✓ Installing dependencies...
+        ✓ Running build command...
+        ✓ Building Docker image...
+        ✓ Pushing to registry...
+        ✓ Deploying container...
+        
+        🎉 Deployment successful!
+        Live at: https://my-app-a1b2c3.deployhub.com
+        ```
+      </Accordion>
+    </Step>
+  </Steps>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Explore by topic
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Learn about DeployHub's powerful features
+  </p>
+  
+  <CardGroup cols={3}>
+    <Card title="Deployments" icon="rocket" href="/features/deployments">
+      Automated Docker builds from your GitHub repositories with real-time logs
+    </Card>
+    <Card title="GitHub Integration" icon="github" href="/features/github-integration">
+      OAuth authentication and seamless private repository access
+    </Card>
+    <Card title="Custom Domains" icon="globe" href="/features/custom-domains">
+      Free subdomains and custom domain support for pro plans
+    </Card>
+    <Card title="Environment Variables" icon="key" href="/features/environment-variables">
+      Securely manage configuration and secrets for your deployments
+    </Card>
+    <Card title="Build Logs" icon="terminal" href="/features/build-logs">
+      Real-time streaming logs and build history for debugging
+    </Card>
+    <Card title="Subscription Plans" icon="credit-card" href="/billing/plans">
+      Flexible pricing with free and pro tiers
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Deployment types
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    DeployHub supports multiple project types
+  </p>
+  
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <a href="/deployment/static-sites" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] overflow-hidden no-underline hover:border-[#3B82F6] dark:hover:border-[#3B82F6] transition-colors">
+      <div className="h-40 bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+        <svg className="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+      </div>
+      <div className="p-6 bg-white dark:bg-[#1a1d27]">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2">Static Sites</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Deploy React, Vue, Angular, or any static site with custom build commands
+        </p>
+        <div className="flex items-center text-sm font-medium text-[#3B82F6] group-hover:text-[#2563EB]">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+    
+    <a href="/deployment/nodejs-apps" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] overflow-hidden no-underline hover:border-[#3B82F6] dark:hover:border-[#3B82F6] transition-colors">
+      <div className="h-40 bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
+        <svg className="w-16 h-16 text-white" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 1.85c-.27 0-.55.07-.78.2l-7.44 4.3c-.48.28-.78.8-.78 1.36v8.58c0 .56.3 1.08.78 1.36l1.95 1.12c.95.46 1.27.47 1.71.47 1.4 0 2.21-.85 2.21-2.33V8.44c0-.12-.1-.22-.22-.22H8.5c-.13 0-.23.1-.23.22v8.47c0 .66-.68 1.31-1.77.76L4.45 16.5a.26.26 0 01-.11-.21V7.71c0-.09.04-.17.11-.21l7.44-4.29c.06-.04.16-.04.22 0l7.44 4.29c.07.04.11.12.11.21v8.58c0 .08-.04.16-.11.21l-7.44 4.29c-.06.04-.16.04-.22 0L10.6 20c-.06-.03-.14-.03-.19 0-.5.28-.59.32-1.05.42-.11.02-.28.06.07.18l2.5 1.5c.24.13.5.2.78.2.27 0 .54-.07.77-.2l7.44-4.3c.48-.28.78-.8.78-1.36V7.71c0-.56-.3-1.08-.78-1.36l-7.44-4.3c-.23-.13-.5-.2-.78-.2z"/>
+        </svg>
+      </div>
+      <div className="p-6 bg-white dark:bg-[#1a1d27]">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2">Node.js Apps</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Deploy Express, Next.js, or any Node.js application with custom start commands
+        </p>
+        <div className="flex items-center text-sm font-medium text-[#3B82F6] group-hover:text-[#2563EB]">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Resources
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Additional resources to help you get the most out of DeployHub
+  </p>
+  
+  <CardGroup cols={2}>
+    <Card title="API Reference" icon="code" href="/api/auth/register">
+      Complete REST API documentation for programmatic deployments
+    </Card>
+    <Card title="GitHub Repository" icon="github" href="https://github.com/rahulkumar6777/deployhub">
+      View the source code and contribute to DeployHub
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-20 mb-16 max-w-5xl mx-auto px-6">
+  <div className="rounded-2xl border border-gray-200 dark:border-[#27272a] bg-gradient-to-br from-[#3B82F6]/10 to-[#2563EB]/10 dark:from-[#3B82F6]/20 dark:to-[#2563EB]/20 p-8 md:p-12">
+    <h2 className="text-2xl md:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+      Ready to deploy?
+    </h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 mb-6 max-w-2xl">
+      Start deploying your projects in minutes with DeployHub's powerful platform. Sign up now and get 3 free projects with 2,000 monthly requests.
+    </p>
+    <a
+      href="/quickstart"
+      className="inline-flex items-center px-6 py-3 rounded-lg bg-[#3B82F6] text-white font-semibold hover:bg-[#2563EB] transition-colors"
+    >
+      Get Started
+      <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+      </svg>
+    </a>
+  </div>
+</div>

@@ -1,0 +1,246 @@
+---
+title: 'Initialize Subscription Payment'
+api: 'POST /api/subscription/init'
+description: 'Create a Razorpay order for subscription payment with automatic discount calculation'
+---
+
+This endpoint initializes a subscription payment by creating a Razorpay order. It calculates the final amount based on the selected plan and duration, applying volume discounts automatically.
+
+## Authentication
+
+Requires JWT authentication via the `verifyJWT` middleware.
+
+## Request Body
+
+<ParamField body="plan" type="string" required>
+  The subscription plan type. Use `"pro"` for paid plans or `"free"` for free plan.
+</ParamField>
+
+<ParamField body="months" type="number" required={"For paid plans"}>
+  Subscription duration in months. Required for paid plans. Valid options:
+  - `1` - 1 month (0% discount)
+  - `3` - 3 months (4% discount)
+  - `6` - 6 months (8% discount)
+  - `12` - 12 months (10% discount)
+  - `24` - 24 months (15% discount)
+</ParamField>
+
+## Response
+
+### Free Plan Response
+
+<ResponseField name="success" type="boolean">
+  Indicates successful project creation
+</ResponseField>
+
+<ResponseField name="project" type="object">
+  The created project object
+  
+  <ResponseField name="_id" type="string">
+    Project ID
+  </ResponseField>
+  
+  <ResponseField name="owner" type="string">
+    User ID of the project owner
+  </ResponseField>
+  
+  <ResponseField name="paymentId" type="null">
+    Null for free plan
+  </ResponseField>
+  
+  <ResponseField name="plan" type="string">
+    Defaults to "free"
+  </ResponseField>
+</ResponseField>
+
+### Paid Plan Response (Razorpay Order)
+
+<ResponseField name="id" type="string">
+  Razorpay order ID (e.g., `order_rcptid_0.12345`)
+</ResponseField>
+
+<ResponseField name="amount" type="number">
+  Order amount in paise (smallest currency unit). Calculated as: `months × basePrice × (1 - discount/100)`
+</ResponseField>
+
+<ResponseField name="currency" type="string">
+  Currency code (always `"INR"`)
+</ResponseField>
+
+<ResponseField name="receipt" type="string">
+  Order receipt ID
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Order status (e.g., `"created"`)
+</ResponseField>
+
+## Pricing Calculation
+
+The Pro plan uses the following pricing structure from `planPrice.js:1`:
+
+- **Base Price**: ₹799.00/month (79900 paise)
+- **Discounts by Duration**:
+  - 1 month: 0% discount → ₹799
+  - 3 months: 4% discount → ₹2,300.64
+  - 6 months: 8% discount → ₹4,417.92
+  - 12 months: 10% discount → ₹8,629.20
+  - 24 months: 15% discount → ₹16,297.20
+
+### Calculation Formula
+
+```javascript
+finalAmount = months × basePrice × (1 - discount / 100)
+```
+
+## Database Records
+
+On successful Razorpay order creation, a `PendingOrder` record is created:
+
+- `userid`: Authenticated user ID
+- `oderid`: Razorpay order ID
+- `months`: Subscription duration
+- `amount`: Final calculated amount
+- `plan`: Always `"pro"` for paid plans
+- `status`: `"pending"`
+- `createdAt`: Auto-expires after 2 hours (7200 seconds)
+
+<Warning>
+  Pending orders automatically expire after 2 hours if payment is not completed.
+</Warning>
+
+## Request Examples
+
+### Free Plan
+
+```bash
+curl -X POST https://api.deployhub.com/api/subscription/init \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan": "free"
+  }'
+```
+
+### Pro Plan - 1 Month
+
+```bash
+curl -X POST https://api.deployhub.com/api/subscription/init \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan": "pro",
+    "months": 1
+  }'
+```
+
+### Pro Plan - 12 Months (10% Discount)
+
+```bash
+curl -X POST https://api.deployhub.com/api/subscription/init \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan": "pro",
+    "months": 12
+  }'
+```
+
+## Response Examples
+
+### Free Plan Success
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "507f1f77bcf86cd799439011",
+    "owner": "507f191e810c19729de860ea",
+    "paymentId": null,
+    "plan": "free",
+    "createdAt": "2026-03-04T10:30:00.000Z",
+    "updatedAt": "2026-03-04T10:30:00.000Z"
+  }
+}
+```
+
+### Pro Plan Success (Razorpay Order)
+
+```json
+{
+  "id": "order_rcptid_0.8347562",
+  "entity": "order",
+  "amount": 862920,
+  "amount_paid": 0,
+  "amount_due": 862920,
+  "currency": "INR",
+  "receipt": "order_rcptid_0.8347562",
+  "status": "created",
+  "attempts": 0,
+  "notes": [],
+  "created_at": 1709548200
+}
+```
+
+## Error Responses
+
+### Missing Plan
+
+```json
+{
+  "message": "Plan is required"
+}
+```
+
+### Missing Months for Paid Plan
+
+```json
+{
+  "message": "Months required for paid plans"
+}
+```
+
+### Invalid Plan
+
+```json
+{
+  "message": "Invalid plan"
+}
+```
+
+### Razorpay Error
+
+```json
+{
+  "error": "Error creating Razorpay order"
+}
+```
+
+## Implementation Details
+
+The endpoint is implemented in `init.controller.js:11` and:
+
+1. Validates the plan parameter
+2. For free plans, creates a project immediately with no payment
+3. For paid plans:
+   - Validates the months parameter
+   - Retrieves pricing from `planPrice.js`
+   - Calculates discount based on duration
+   - Creates Razorpay order
+   - Stores pending order in database
+4. Returns the appropriate response
+
+<Warning>
+  The final amount is converted to an integer using `parseInt()`, which may cause precision issues. Ensure the calculation `months * basePrice * (1 - discount / 100)` results in a whole number.
+</Warning>
+
+## Next Steps
+
+After receiving the Razorpay order details:
+
+1. Use the Razorpay Checkout SDK on your frontend to collect payment
+2. On successful payment, Razorpay will provide:
+   - `razorpay_payment_id`
+   - `razorpay_order_id`
+   - `razorpay_signature`
+3. Send these to the [Verify Payment](/api/subscriptions/verify) endpoint to activate the subscription

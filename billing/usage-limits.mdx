@@ -1,0 +1,351 @@
+---
+title: Usage Limits & Quotas
+description: Understand resource quotas, request limits, and how they're enforced across plans
+---
+
+## Overview
+
+DeployHub enforces usage limits to ensure fair resource allocation across all users. Limits are defined per plan and enforced at the system level.
+
+<Note>
+All limits are defined in `/prototype/backend/src/constants/planLimits.js:1`
+</Note>
+
+## Free Plan Limits
+
+The Free plan includes the following quotas:
+
+<CardGroup cols={2}>
+  <Card title="Projects" icon="folder">
+    **3 projects maximum**
+    
+    Deploy up to 3 separate projects simultaneously
+  </Card>
+  
+  <Card title="Monthly Requests" icon="globe">
+    **2,000 requests/month**
+    
+    Total HTTP requests across all projects
+  </Card>
+  
+  <Card title="RAM Allocation" icon="memory">
+    **512 MB per project**
+    
+    Memory available for each deployment
+  </Card>
+  
+  <Card title="CPU Allocation" icon="microchip">
+    **0.1 vCPU**
+    
+    Fractional CPU for each container
+  </Card>
+</CardGroup>
+
+### Free Plan Restrictions
+
+| Feature | Status |
+|---------|--------|
+| Custom Domains | ❌ Not available |
+| Team Members | Limited to 1 |
+| Team Collaboration | Not supported |
+
+```javascript
+// Free plan limits from planLimits.js:2-9
+free: {
+  projects: 3,
+  requests: 2000,
+  ram: 512,
+  cpu: 0.1,
+  customDomain: false,
+  teamMembers: 1,
+}
+```
+
+## Pro Plan Limits
+
+The Pro plan significantly increases all quotas:
+
+<CardGroup cols={2}>
+  <Card title="Projects" icon="folder-open">
+    **10 projects maximum**
+    
+    3.3× more projects than Free
+  </Card>
+  
+  <Card title="Monthly Requests" icon="chart-line">
+    **100,000 requests/month**
+    
+    50× more requests than Free
+  </Card>
+  
+  <Card title="RAM Allocation" icon="server">
+    **2048 MB (2 GB) per project**
+    
+    4× more memory than Free
+  </Card>
+  
+  <Card title="CPU Allocation" icon="gauge-high">
+    **1.0 vCPU**
+    
+    10× more CPU than Free
+  </Card>
+</CardGroup>
+
+### Pro Plan Features
+
+| Feature | Status |
+|---------|--------|
+| Custom Domains | ✅ Unlimited |
+| Team Members | ✅ Unlimited |
+| Team Collaboration | ✅ Full support |
+
+```javascript
+// Pro plan limits from planLimits.js:10-16
+pro: {
+  projects: 10,
+  requests: 100000,
+  ram: 2048,
+  cpu: 1,
+  customDomain: true,
+}
+```
+
+## How Limits Are Enforced
+
+<AccordionGroup>
+  <Accordion title="Project Creation Limits">
+    When you attempt to create a new project:
+    
+    1. System checks your current plan
+    2. Counts your existing active projects
+    3. Compares against `PLAN_LIMITS[plan].projects`
+    4. Blocks creation if limit exceeded
+    
+    <Warning>
+    You must delete an existing project or upgrade to Pro to create more projects after reaching the limit.
+    </Warning>
+  </Accordion>
+  
+  <Accordion title="Request Quotas">
+    HTTP requests are tracked per billing cycle:
+    
+    - **Free:** 2,000 requests/month
+    - **Pro:** 100,000 requests/month
+    
+    When quota is exceeded:
+    - Additional requests may be throttled
+    - Error 429 (Too Many Requests) returned
+    - Service resumes at next billing cycle
+    
+    <Tip>
+    Monitor your request usage in the dashboard to avoid hitting limits.
+    </Tip>
+  </Accordion>
+  
+  <Accordion title="Resource Allocation">
+    RAM and CPU limits are enforced at deployment time:
+    
+    ```yaml
+    # Docker container resource limits
+    resources:
+      limits:
+        memory: ${PLAN_LIMITS[plan].ram}Mi
+        cpu: ${PLAN_LIMITS[plan].cpu}
+    ```
+    
+    - Containers cannot exceed allocated RAM
+    - OOM (Out of Memory) kills occur if limit exceeded
+    - CPU is throttled based on allocation
+  </Accordion>
+  
+  <Accordion title="Custom Domain Restrictions">
+    From `planLimits.js:7` and `:15`:
+    
+    - **Free:** `customDomain: false` - feature completely disabled
+    - **Pro:** `customDomain: true` - full access
+    
+    Attempting to add a custom domain on Free plan returns:
+    
+    ```json
+    {
+      "error": "Custom domains require Pro plan",
+      "upgrade": "/billing/plans"
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Team Member Limits">
+    Collaboration features are plan-restricted:
+    
+    - **Free:** Maximum 1 team member (yourself)
+    - **Pro:** Unlimited team members
+    
+    Team invitations on Free plan will fail validation.
+  </Accordion>
+</AccordionGroup>
+
+## Monitoring Your Usage
+
+<Steps>
+  <Step title="Check Dashboard">
+    View real-time usage metrics in your account dashboard
+    - Current request count
+    - Active projects
+    - Resource utilization
+  </Step>
+  
+  <Step title="Set Up Alerts">
+    Configure notifications for:
+    - 80% quota usage warnings
+    - Quota exceeded alerts
+    - Subscription expiry reminders
+  </Step>
+  
+  <Step title="Review Logs">
+    Access deployment logs to identify:
+    - Memory spikes
+    - CPU bottlenecks
+    - Request patterns
+  </Step>
+</Steps>
+
+## Plan Comparison Table
+
+<Note>
+All values below are enforced from `PLAN_LIMITS` constant
+</Note>
+
+| Resource | Free Plan | Pro Plan | Increase |
+|----------|-----------|----------|----------|
+| **Projects** | 3 | 10 | 233% |
+| **Requests/Month** | 2,000 | 100,000 | 4,900% |
+| **RAM (MB)** | 512 | 2,048 | 300% |
+| **CPU (vCPU)** | 0.1 | 1.0 | 900% |
+| **Custom Domains** | No | Yes | N/A |
+| **Team Members** | 1 | Unlimited | N/A |
+
+## What Happens When Limits Are Exceeded?
+
+<Warning>
+Exceeding limits can impact your application's availability and performance.
+</Warning>
+
+### Project Limit Exceeded
+
+```javascript
+// System response when creating project #4 on Free plan
+{
+  "error": "Project limit reached",
+  "limit": 3,
+  "current": 3,
+  "plan": "free",
+  "action": "Upgrade to Pro or delete existing project"
+}
+```
+
+### Request Quota Exceeded
+
+```javascript
+// HTTP 429 response
+{
+  "error": "Rate limit exceeded",
+  "limit": 2000,
+  "used": 2001,
+  "resetDate": "2026-04-01T00:00:00Z"
+}
+```
+
+### Memory Limit Exceeded
+
+When a container exceeds RAM allocation:
+
+1. Linux OOM killer terminates the process
+2. Container restarts automatically
+3. Deployment may enter crash loop
+4. Health checks fail
+
+**Solution:** Upgrade to Pro for 2GB RAM
+
+### CPU Throttling
+
+When CPU usage exceeds allocation:
+
+- Process is throttled (not killed)
+- Response times increase
+- Performance degrades
+- User experience suffers
+
+**Solution:** Upgrade to Pro for full vCPU
+
+## Optimizing Resource Usage
+
+<Tabs>
+  <Tab title="Reduce Memory">
+    - Use smaller base images (Alpine Linux)
+    - Remove development dependencies in production
+    - Implement memory-efficient algorithms
+    - Enable garbage collection tuning
+  </Tab>
+  
+  <Tab title="Reduce CPU">
+    - Cache expensive operations
+    - Use CDN for static assets
+    - Optimize database queries
+    - Implement efficient algorithms
+  </Tab>
+  
+  <Tab title="Reduce Requests">
+    - Implement caching strategies
+    - Use browser caching headers
+    - Combine multiple API calls
+    - Add request debouncing
+  </Tab>
+  
+  <Tab title="Optimize Projects">
+    - Consolidate similar projects
+    - Archive unused projects
+    - Use feature flags instead of separate deployments
+  </Tab>
+</Tabs>
+
+## When to Upgrade
+
+Consider upgrading from Free to Pro when:
+
+<CardGroup cols={2}>
+  <Card title="High Traffic" icon="arrow-trend-up">
+    Consistently approaching 2,000 requests/month
+  </Card>
+  
+  <Card title="Multiple Projects" icon="layer-group">
+    Need more than 3 active deployments
+  </Card>
+  
+  <Card title="Performance Issues" icon="gauge">
+    Experiencing memory or CPU constraints
+  </Card>
+  
+  <Card title="Custom Branding" icon="globe">
+    Require custom domain support
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="View Plans" icon="money-bill" href="/billing/plans">
+    Compare Free vs Pro pricing
+  </Card>
+  
+  <Card title="Upgrade to Pro" icon="arrow-up" href="/billing/payment-methods">
+    Start Pro subscription
+  </Card>
+  
+  <Card title="Monitor Usage" icon="chart-bar" href="/dashboard">
+    Check your current usage
+  </Card>
+  
+  <Card title="Optimize Apps" icon="wrench" href="/guides/optimization">
+    Reduce resource consumption
+  </Card>
+</CardGroup>

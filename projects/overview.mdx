@@ -1,0 +1,197 @@
+---
+title: 'Project Overview'
+description: 'View project dashboard, status, and deployment information'
+---
+
+## Project Dashboard
+
+The project overview provides a comprehensive view of your project's current state, including deployment status, domain information, build history, and usage metrics.
+
+### Get Project Overview
+
+<Card title="GET /api/projects/:id/overview" icon="chart-line">
+  Retrieve complete project dashboard information including latest build and settings.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Path Parameters:**
+
+<ParamField path="id" type="string" required>
+  Project ID (MongoDB ObjectId)
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "507f1f77bcf86cd799439011",
+    "name": "my-website",
+    "projectType": "static",
+    "repoLink": "https://github.com/username/repo",
+    "status": "live",
+    "plan": "free",
+    "totalRequest": 1542,
+    "totalBuilds": 8,
+    "domain": "my-website-a3f5k2.deployhub.online",
+    "settings": {
+      "repoBranchName": "main",
+      "folder": {
+        "enabled": false,
+        "name": ""
+      }
+    },
+    "buildCommand": "npm run build",
+    "publishDir": "dist",
+    "startCommand": null,
+    "port": null,
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-20T14:22:00.000Z"
+  },
+  "lastBuild": {
+    "_id": "507f1f77bcf86cd799439012",
+    "commitSha": "a3f5d2c8e1b4f6a9d2c3e4f5a6b7c8d9",
+    "status": "success",
+    "duration": "2m 34s",
+    "createdAt": "2024-01-20T14:20:00.000Z"
+  }
+}
+```
+
+## Project Status States
+
+<CardGroup cols={2}>
+  <Card title="pending" icon="clock">
+    Project created but not yet configured for first deployment
+  </Card>
+  <Card title="building" icon="gear">
+    Build process is in progress or container is being recreated
+  </Card>
+  <Card title="live" icon="check-circle">
+    Project is successfully deployed and accessible
+  </Card>
+  <Card title="stopped" icon="stop-circle">
+    Project deployment has been stopped
+  </Card>
+  <Card title="failed-deploy" icon="exclamation-triangle">
+    Deployment or build process failed
+  </Card>
+  <Card title="deleted" icon="trash">
+    Project has been soft-deleted (not returned in queries)
+  </Card>
+</CardGroup>
+
+## Project Types
+
+### Static Projects
+
+For static site generators (React, Vue, Next.js static export, etc.):
+
+<ParamField path="projectType" type="string" default="static">
+  Static projects require `buildCommand` and `publishDir`
+</ParamField>
+
+**Required Fields:**
+- `buildCommand`: Command to build your project (e.g., `npm run build`)
+- `publishDir`: Output directory containing built files (e.g., `dist`, `build`, `out`)
+
+**Internal Port:** Static projects run on port `80` internally
+
+### Node Projects
+
+For Node.js applications with runtime servers:
+
+<ParamField path="projectType" type="string">
+  Node projects require `startCommand` and `port`
+</ParamField>
+
+**Required Fields:**
+- `startCommand`: Command to start your server (e.g., `node server.js`, `npm start`)
+- `port`: Port your application listens on (must match your server configuration)
+
+## Domain Information
+
+Every project receives a unique subdomain in the format:
+
+```
+{project-name}-{random-id}.deployhub.online
+```
+
+**Subdomain Generation:**
+- Random 6-character ID is appended to project name
+- Converted to lowercase
+- Up to 20 attempts to ensure uniqueness
+- Pattern: `{name}-{6-char-random-id}`
+
+<Note>
+  If a custom domain is configured, the `domain` field will show your custom domain instead of the subdomain.
+</Note>
+
+## Duration Calculation
+
+Build duration is calculated from `startedAt` to `finishedAt`:
+
+- Under 60 seconds: Displayed as `{seconds}s`
+- 60 seconds or more: Displayed as `{minutes}m {seconds}s`
+
+## Get Project Metadata
+
+<Card title="GET /api/projects/:id/meta" icon="info-circle">
+  Retrieve lightweight project metadata (smaller response than overview).
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+## Usage Metrics
+
+The overview includes:
+
+<CardGroup cols={2}>
+  <Card title="Total Requests" icon="chart-bar">
+    Cumulative HTTP requests served by this project
+  </Card>
+  <Card title="Total Builds" icon="layer-group">
+    Number of builds created for this project
+  </Card>
+</CardGroup>
+
+## Example Use Cases
+
+### Display Project Dashboard
+
+```javascript
+const response = await fetch('/api/projects/507f1f77bcf86cd799439011/overview', {
+  headers: {
+    'Authorization': `Bearer ${accessToken}`
+  }
+});
+
+const { project, lastBuild } = await response.json();
+
+console.log(`Status: ${project.status}`);
+console.log(`Domain: ${project.domain}`);
+console.log(`Last build: ${lastBuild.status} (${lastBuild.duration})`);
+```
+
+### Monitor Build Progress
+
+```javascript
+// Poll for status updates during deployment
+const checkStatus = async (projectId) => {
+  const response = await fetch(`/api/projects/${projectId}/overview`);
+  const { project, lastBuild } = await response.json();
+  
+  if (project.status === 'building') {
+    console.log('Build in progress...');
+    setTimeout(() => checkStatus(projectId), 5000);
+  } else if (project.status === 'live') {
+    console.log(`Deployed successfully to ${project.domain}`);
+  }
+};
+```
+
+<Note>
+  Only projects with `status` not equal to `'deleted'` are returned. Deleted projects return a 404 error.
+</Note>

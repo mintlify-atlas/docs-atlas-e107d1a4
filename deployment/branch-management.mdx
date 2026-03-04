@@ -1,0 +1,492 @@
+---
+title: Branch Management & Commit Tracking
+description: Configure branch selection, commit tracking, and automatic redeployments
+---
+
+DeployHub tracks Git branches and commits to enable automatic redeployments when your code changes. Learn how to configure branch selection and monitor commit history.
+
+## Branch Configuration
+
+Specify which branch to deploy from using the `branchname` field:
+
+```json
+{
+  "branchname": "main"
+}
+```
+
+<Note>
+**Common branch names:**
+- `main` (default)
+- `master`
+- `develop`
+- `staging`
+- `production`
+</Note>
+
+## Validation
+
+<Warning>
+The `branchname` field is required for all deployments.
+</Warning>
+
+From the validation schema:
+
+```javascript
+body('branchname')
+  .notEmpty()
+  .withMessage('branch name is required')
+```
+
+## Database Storage
+
+Branch settings are stored in the project model:
+
+```javascript
+settings: {
+  repoBranchName: {
+    type: String,
+    default: "main"
+  }
+}
+```
+
+## Commit Tracking
+
+DeployHub automatically tracks the commit SHA of each deployment for change detection.
+
+### Build Model
+
+Commits are tracked in the Build model:
+
+```javascript
+const buildSchema = new mongoose.Schema({
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Project",
+    required: true,
+    index: true
+  },
+  commitSha: String,
+  status: {
+    type: String,
+    enum: ['pending', 'success', 'failed'],
+    default: 'pending'
+  },
+  startedAt: Date,
+  finishedAt: Date,
+  dockerImage: String,
+  logUrl: String
+}, { timestamps: true });
+```
+
+### Fetching Commit SHA
+
+During deployment, DeployHub fetches the latest commit SHA from GitHub:
+
+```javascript
+const owner = parts[3];
+const repo = parts[4].replace(/\.git$/, '');
+
+let headers = {
+  "Accept": "application/vnd.github.v3+json"
+};
+
+if (user.githubAccessToken) {
+  headers.Authorization = `token ${user.githubAccessToken}`;
+}
+
+const response = await fetch(
+  `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branchname}`,
+  { headers }
+);
+
+const data = await response.json();
+commitSha = data?.object?.sha || null;
+```
+
+### Storing Commit SHA
+
+The commit SHA is stored with each build:
+
+```javascript
+const newBuild = new Model.Build({
+  project: newProject._id,
+  commitSha: commitSha,
+});
+```
+
+## Deployment Request with Branch
+
+<Steps>
+  <Step title="Specify branch in deployment request">
+    ```json
+    {
+      "projectId": "507f1f77bcf86cd799439011",
+      "name": "my-app",
+      "codeLink": "https://github.com/username/repo.git",
+      "projectType": "static",
+      "buildCommand": "npm run build",
+      "publishDir": "dist",
+      "branchname": "develop",
+      "isFolder": false
+    }
+    ```
+  </Step>
+
+  <Step title="DeployHub fetches latest commit">
+    The commit SHA is automatically fetched from the specified branch.
+  </Step>
+
+  <Step title="Build is created with commit tracking">
+    ```javascript
+    {
+      "project": "507f1f77bcf86cd799439011",
+      "commitSha": "a3f2b1c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0",
+      "status": "pending",
+      "dockerImage": "username/projectid:buildid"
+    }
+    ```
+  </Step>
+</Steps>
+
+## Git Clone with Branch
+
+DeployHub clones the specified branch during build:
+
+```javascript
+const branchname = projectData.settings.repoBranchName;
+const isFolder = projectData.settings.folder.enabled;
+const folderName = projectData.settings.folder?.name;
+
+let repoUrlWithAuth;
+if (usergithubAccessToken) {
+  repoUrlWithAuth = `https://${usergithubAccessToken}@github.com/${owner}/${repo}.git`;
+} else {
+  repoUrlWithAuth = `https://github.com/${owner}/${repo}.git`;
+}
+
+if (isFolder === true) {
+  execSync(
+    `git clone -b ${branchname} --filter=blob:none --sparse ${repoUrlWithAuth} ${buildFilePath}`,
+    { stdio: "inherit" },
+  );
+} else {
+  execSync(`git clone -b ${branchname} ${repoUrlWithAuth} ${buildFilePath}`, {
+    stdio: "inherit",
+  });
+}
+```
+
+## Automatic Redeployment
+
+DeployHub intelligently redeployes based on commit changes.
+
+### Change Detection
+
+The redeploy worker compares commit SHAs:
+
+```javascript
+const projectData = bindingData.project;
+const buildData = projectData.buildId;
+
+// Fetch latest commit SHA
+let commitSha = null;
+const response = await fetch(
+  `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${projectData.settings.repoBranchName}`,
+  { headers }
+);
+
+const data = await response.json();
+commitSha = data?.object?.sha || null;
+
+// Check if rebuild is needed
+const isBuildFailed = buildData.status === "failed";
+const isNewCommit = commitSha && buildData.commitSha !== commitSha;
+
+if (isBuildFailed || isNewCommit) {
+  // Rebuild from source
+  const newBuild = new Model.Build({
+    project: projectData._id,
+    commitSha: commitSha,
+    status: 'pending',
+    startedAt: new Date(),
+  });
+  // ... build process
+}
+```
+
+### Rebuild Triggers
+
+A rebuild is triggered when:
+
+1. **Previous build failed**: `buildData.status === "failed"`
+2. **New commit detected**: `buildData.commitSha !== commitSha`
+
+### Redeployment Without Rebuild
+
+If the commit hasn't changed and the build succeeded, DeployHub redeploys the existing Docker image:
+
+```javascript
+if (isBuildFailed || isNewCommit) {
+  // Rebuild from source
+} else {
+  // Use existing image
+  const imageName = buildData.dockerImage;
+  
+  // Pull image if not available locally
+  const images = await docker.listImages();
+  const imageExists = images.some(img => 
+    img.RepoTags && img.RepoTags.includes(imageName)
+  );
+  
+  if (!imageExists) {
+    await docker.pull(imageName);
+  }
+  
+  // Deploy existing image
+}
+```
+
+## GitHub Webhook Integration
+
+After successful deployment, DeployHub sets up a webhook for automatic redeployments:
+
+```javascript
+if (usergithubAccessToken) {
+  const result = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/hooks`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${usergithubAccessToken}`,
+        Accept: "application/vnd.github+json"
+      },
+      body: JSON.stringify({
+        name: "web",
+        active: true,
+        events: ["push"],
+        config: {
+          url: "https://api.deployhub.cloud/github-webhook",
+          content_type: "json",
+          secret: process.env.GITHUB_WEBHOOK_SECRET
+        }
+      })
+    }
+  );
+}
+```
+
+<Note>
+Webhooks are only created if the user has provided a GitHub access token.
+</Note>
+
+## Webhook Events
+
+The webhook triggers on:
+
+- **Push events**: Commits pushed to the configured branch
+- **Automatic redeployment**: DeployHub detects the new commit and redeploys
+
+## Updating Branch Settings
+
+Change the branch via the settings API:
+
+```bash
+curl -X PATCH https://api.deployhub.cloud/api/projects/:id/settings/general \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "repoBranchName": "staging"
+  }'
+```
+
+<Warning>
+Changing the branch requires a redeployment to build from the new branch.
+</Warning>
+
+## Manual Redeployment
+
+Trigger a manual redeployment:
+
+```bash
+curl -X POST https://api.deployhub.cloud/api/deployment/redeploy/:projectId \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+This will:
+
+1. Check for new commits on the configured branch
+2. Rebuild if new commits are detected
+3. Redeploy the application
+
+## Branch Strategy Examples
+
+### Production Deployment
+
+```json
+{
+  "branchname": "main",
+  "name": "prod-app"
+}
+```
+
+### Staging Deployment
+
+```json
+{
+  "branchname": "staging",
+  "name": "staging-app"
+}
+```
+
+### Development Deployment
+
+```json
+{
+  "branchname": "develop",
+  "name": "dev-app"
+}
+```
+
+### Feature Branch Deployment
+
+```json
+{
+  "branchname": "feature/new-ui",
+  "name": "feature-new-ui"
+}
+```
+
+## Multi-Environment Setup
+
+Deploy multiple environments from different branches:
+
+<CodeGroup>
+```json Production
+{
+  "projectId": "prod-id",
+  "name": "app-production",
+  "branchname": "main",
+  "env": {
+    "NODE_ENV": "production",
+    "API_URL": "https://api.example.com"
+  }
+}
+```
+
+```json Staging
+{
+  "projectId": "staging-id",
+  "name": "app-staging",
+  "branchname": "staging",
+  "env": {
+    "NODE_ENV": "staging",
+    "API_URL": "https://staging-api.example.com"
+  }
+}
+```
+
+```json Development
+{
+  "projectId": "dev-id",
+  "name": "app-dev",
+  "branchname": "develop",
+  "env": {
+    "NODE_ENV": "development",
+    "API_URL": "https://dev-api.example.com"
+  }
+}
+```
+</CodeGroup>
+
+## Project Settings Response
+
+When fetching project settings, branch info is included:
+
+```javascript
+project: {
+  name: "my-app",
+  projectType: "static",
+  settings: {
+    repoBranchName: "main",
+    folder: {
+      enabled: false,
+      name: ""
+    }
+  },
+  buildCommand: "npm run build",
+  publishDir: "dist",
+  env: {}
+}
+```
+
+## Troubleshooting
+
+### Branch Not Found
+
+<Warning>
+Ensure the branch exists in your repository before deploying.
+</Warning>
+
+```bash
+# List all branches
+git branch -r
+
+# Check if branch exists
+git ls-remote --heads origin branchname
+```
+
+### Commit SHA Not Fetched
+
+If commit tracking fails:
+
+- Check that the repository is public or GitHub token is provided
+- Verify branch name is correct
+- Ensure GitHub API is accessible
+
+### Webhook Not Triggering
+
+- Verify webhook is created in GitHub repository settings
+- Check webhook secret matches
+- Ensure webhook URL is accessible
+- Review webhook delivery logs in GitHub
+
+### Rebuild Not Triggered
+
+If changes aren't detected:
+
+- Verify commits are pushed to the correct branch
+- Check that the webhook is firing
+- Manually trigger redeployment to force a check
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Protected Branches" icon="shield">
+    Use protected branches for production deployments
+  </Card>
+  <Card title="Branch Naming" icon="tag">
+    Use consistent branch naming conventions across projects
+  </Card>
+  <Card title="Commit Messages" icon="message">
+    Write clear commit messages for deployment tracking
+  </Card>
+  <Card title="Testing" icon="flask">
+    Test on staging branches before deploying to production
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Static Sites" icon="browser" href="/deployment/static-sites">
+    Deploy React, Vue, Angular apps
+  </Card>
+  <Card title="Node.js Apps" icon="node-js" href="/deployment/nodejs-apps">
+    Deploy Express, Nest.js backends
+  </Card>
+  <Card title="Monorepo Support" icon="folder-tree" href="/deployment/monorepo-support">
+    Deploy from specific folders
+  </Card>
+</CardGroup>

@@ -1,0 +1,181 @@
+---
+title: "GitHub Repositories"
+description: "Retrieve GitHub repositories for authenticated users"
+---
+
+## Get User Repositories
+
+<RequestExample>
+```bash
+GET /api/user/gitrepos
+```
+</RequestExample>
+
+Fetches the authenticated user's GitHub repositories. Only available for users authenticated via GitHub OAuth.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+### Response
+
+<ResponseField name="repos" type="array">
+  Array of GitHub repositories accessible to the user
+  
+  <Expandable title="repository properties">
+    <ResponseField name="id" type="number">
+      GitHub repository ID
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Repository name
+    </ResponseField>
+    
+    <ResponseField name="full_name" type="string">
+      Full repository name including owner (e.g., `username/repo-name`)
+    </ResponseField>
+    
+    <ResponseField name="private" type="boolean">
+      Whether the repository is private
+    </ResponseField>
+    
+    <ResponseField name="html_url" type="string">
+      GitHub web URL for the repository
+    </ResponseField>
+    
+    <ResponseField name="description" type="string">
+      Repository description
+    </ResponseField>
+    
+    <ResponseField name="default_branch" type="string">
+      Default branch name (e.g., `main`, `master`)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "repos": [
+    {
+      "id": 123456789,
+      "name": "my-web-app",
+      "full_name": "johndoe/my-web-app",
+      "private": false,
+      "html_url": "https://github.com/johndoe/my-web-app",
+      "description": "A full-stack web application built with React and Node.js",
+      "default_branch": "main"
+    },
+    {
+      "id": 987654321,
+      "name": "portfolio-site",
+      "full_name": "johndoe/portfolio-site",
+      "private": true,
+      "html_url": "https://github.com/johndoe/portfolio-site",
+      "description": "Personal portfolio website",
+      "default_branch": "main"
+    },
+    {
+      "id": 456789123,
+      "name": "api-service",
+      "full_name": "johndoe/api-service",
+      "private": false,
+      "html_url": "https://github.com/johndoe/api-service",
+      "description": "RESTful API service",
+      "default_branch": "master"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+## Implementation Details
+
+### Authentication Requirements
+
+- User must be authenticated via GitHub OAuth
+- The user's `provider` field must be set to `github`
+- Requires a valid `githubAccessToken` stored in the user's profile
+
+### GitHub API Integration
+
+- Makes a request to `https://api.github.com/user/repos`
+- Uses the stored GitHub access token for authorization
+- Includes `Accept: application/vnd.github+json` header for GitHub API v3
+
+### Query Parameters
+
+The endpoint queries GitHub with the following parameters:
+
+<ParamField query="visibility" type="string" default="all">
+  Returns both public and private repositories
+</ParamField>
+
+<ParamField query="affiliation" type="string" default="owner,collaborator">
+  Returns repositories the user owns or collaborates on
+</ParamField>
+
+<ParamField query="per_page" type="number" default="100">
+  Maximum number of repositories to return (100 is GitHub's limit per page)
+</ParamField>
+
+### User Model Fields
+
+The implementation uses the following fields from the User model:
+
+```javascript
+{
+  provider: String,              // Must be "github"
+  githubAccessToken: String,     // OAuth access token
+  githubId: String,             // GitHub user ID
+  githubUsername: String        // GitHub username
+}
+```
+
+### Use Cases
+
+- Display available repositories for deployment selection
+- Allow users to connect their GitHub projects to DeployHub
+- Filter repositories for deployment configuration
+- Show repository metadata during project creation
+
+### Error Responses
+
+<ResponseExample>
+```json
+{
+  "message": "You are not logged in with github"
+}
+```
+</ResponseExample>
+
+Returned when the user's provider is not `github`.
+
+<ResponseExample>
+```json
+{
+  "message": "GitHub token missing"
+}
+```
+</ResponseExample>
+
+Returned when the user doesn't have a GitHub access token stored.
+
+<ResponseExample>
+```json
+{
+  "error": "Internal Server Error"
+}
+```
+</ResponseExample>
+
+Returned when there's an error communicating with the GitHub API or an internal server error.
+
+## GitHub OAuth Scopes
+
+The GitHub OAuth integration requires the following scopes:
+- `repo` - Full control of private repositories
+- `user:email` - Access user email addresses
+- `admin:repo_hook` - Repository webhooks for deployment triggers

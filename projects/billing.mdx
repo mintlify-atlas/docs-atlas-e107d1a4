@@ -1,0 +1,412 @@
+---
+title: 'Project Billing'
+description: 'View project plan, subscription dates, and payment history'
+---
+
+## Overview
+
+Each project has its own billing information, including the current plan, subscription period, request usage, and payment history.
+
+## Get Project Billing
+
+<Card title="GET /api/projects/:id/billing" icon="credit-card">
+  Retrieve billing information and payment history for a project.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Path Parameters:**
+
+<ParamField path="id" type="string" required>
+  Project ID (MongoDB ObjectId)
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "507f1f77bcf86cd799439011",
+    "name": "my-website",
+    "plan": "pro",
+    "startDate": "2024-01-01T00:00:00.000Z",
+    "endDate": "2024-02-01T00:00:00.000Z",
+    "totalRequest": 15420
+  },
+  "orders": [
+    {
+      "_id": "507f1f77bcf86cd799439013",
+      "orderid": "order_abc123xyz",
+      "months": 1,
+      "amount": 999,
+      "plan": "pro",
+      "status": "completed",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439012",
+      "orderid": "order_def456uvw",
+      "months": 1,
+      "amount": 999,
+      "plan": "pro",
+      "status": "completed",
+      "createdAt": "2023-12-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+## Project Plan Information
+
+### Plan Types
+
+<CardGroup cols={2}>
+  <Card title="free" icon="gift">
+    Free tier with usage limits
+  </Card>
+  <Card title="pro" icon="star">
+    Professional tier with increased limits
+  </Card>
+</CardGroup>
+
+### Project Billing Fields
+
+The project model includes these billing-related fields:
+
+```javascript
+plan: {
+  type: String,
+  enum: ["free", "pro"],
+  default: "free"
+},
+startDate: {
+  type: Date
+},
+endDate: {
+  type: Date
+},
+paymentId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "CompletedOrder"
+},
+totalRequest: {
+  type: Number,
+  default: 0
+}
+```
+
+<ParamField path="plan" type="string" default="free">
+  Current subscription plan (`"free"` or `"pro"`)
+</ParamField>
+
+<ParamField path="startDate" type="Date">
+  Subscription period start date
+</ParamField>
+
+<ParamField path="endDate" type="Date">
+  Subscription period end date
+</ParamField>
+
+<ParamField path="paymentId" type="ObjectId">
+  Reference to the most recent completed order
+</ParamField>
+
+<ParamField path="totalRequest" type="number" default="0">
+  Total HTTP requests served by this project
+</ParamField>
+
+## Payment History
+
+The billing endpoint returns up to 20 most recent orders:
+
+```javascript
+const orders = await Model.CompletedOrder.find({
+  projectid: req.params.id,
+  userid:    req.user._id,
+})
+  .select('orderid months amount plan status createdAt')
+  .sort({ createdAt: -1 })
+  .limit(20)
+  .lean();
+```
+
+### Order Fields
+
+<ParamField path="orderid" type="string">
+  Unique order identifier from payment gateway
+</ParamField>
+
+<ParamField path="months" type="number">
+  Number of months purchased in this order
+</ParamField>
+
+<ParamField path="amount" type="number">
+  Payment amount (in smallest currency unit, e.g., cents)
+</ParamField>
+
+<ParamField path="plan" type="string">
+  Plan associated with this payment (`"free"` or `"pro"`)
+</ParamField>
+
+<ParamField path="status" type="string">
+  Order status (typically `"completed"` for successful payments)
+</ParamField>
+
+<ParamField path="createdAt" type="Date">
+  Timestamp when the order was created
+</ParamField>
+
+## Subscription Period Calculation
+
+When a project is upgraded to pro:
+
+1. **Start Date:** Set to the payment timestamp
+2. **End Date:** Calculated as `startDate + (months * 30 days)`
+3. **Payment ID:** Reference to the completed order
+
+<Note>
+  Subscription dates are only set for paid plans. Free tier projects will have `null` for `startDate` and `endDate`.
+</Note>
+
+## Request Tracking
+
+The `totalRequest` field tracks cumulative HTTP requests:
+
+```javascript
+totalRequest: {
+  type: Number,
+  default: 0
+}
+```
+
+This counter is incremented by a request tracking worker that monitors traffic to your project.
+
+**Worker:** `/src/workers/Requestcountworker.js`
+
+## Example: Display Billing Information
+
+```javascript
+const displayBilling = async (projectId) => {
+  const response = await fetch(`/api/projects/${projectId}/billing`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  const { project, orders } = await response.json();
+  
+  console.log('=== Project Billing ===');
+  console.log(`Project: ${project.name}`);
+  console.log(`Plan: ${project.plan.toUpperCase()}`);
+  console.log(`Total Requests: ${project.totalRequest.toLocaleString()}`);
+  
+  if (project.startDate && project.endDate) {
+    const start = new Date(project.startDate).toLocaleDateString();
+    const end = new Date(project.endDate).toLocaleDateString();
+    console.log(`Subscription: ${start} - ${end}`);
+    
+    const daysRemaining = Math.ceil(
+      (new Date(project.endDate) - new Date()) / (1000 * 60 * 60 * 24)
+    );
+    console.log(`Days Remaining: ${daysRemaining}`);
+  } else {
+    console.log('Subscription: Free tier (no expiration)');
+  }
+  
+  console.log('\n=== Payment History ===');
+  orders.forEach((order, index) => {
+    console.log(`\n${index + 1}. Order ${order.orderid}`);
+    console.log(`   Plan: ${order.plan}`);
+    console.log(`   Duration: ${order.months} month(s)`);
+    console.log(`   Amount: $${(order.amount / 100).toFixed(2)}`);
+    console.log(`   Status: ${order.status}`);
+    console.log(`   Date: ${new Date(order.createdAt).toLocaleDateString()}`);
+  });
+};
+```
+
+## Example: Check Subscription Status
+
+```javascript
+const isSubscriptionActive = (project) => {
+  if (project.plan === 'free') {
+    return true; // Free tier never expires
+  }
+  
+  if (!project.endDate) {
+    return false; // Pro plan without end date (shouldn't happen)
+  }
+  
+  const now = new Date();
+  const endDate = new Date(project.endDate);
+  
+  return now < endDate;
+};
+
+const checkSubscription = async (projectId) => {
+  const response = await fetch(`/api/projects/${projectId}/billing`);
+  const { project } = await response.json();
+  
+  if (isSubscriptionActive(project)) {
+    console.log('✓ Subscription is active');
+    
+    if (project.plan === 'pro') {
+      const daysRemaining = Math.ceil(
+        (new Date(project.endDate) - new Date()) / (1000 * 60 * 60 * 24)
+      );
+      console.log(`Pro plan expires in ${daysRemaining} days`);
+    }
+  } else {
+    console.log('✗ Subscription has expired');
+    console.log('Renew your subscription to continue using pro features');
+  }
+};
+```
+
+## Plan Upgrade Flow
+
+### 1. Initialize Payment
+
+```javascript
+POST /api/subscription/init
+{
+  "projectId": "507f1f77bcf86cd799439011",
+  "plan": "pro",
+  "months": 1
+}
+```
+
+### 2. Verify Payment
+
+After successful payment:
+
+```javascript
+POST /api/subscription/verify
+{
+  "orderid": "order_abc123xyz",
+  "paymentId": "pay_xyz789abc"
+}
+```
+
+### 3. Update Project
+
+The verify endpoint updates:
+- `project.plan` = `"pro"`
+- `project.startDate` = current timestamp
+- `project.endDate` = calculated based on months
+- `project.paymentId` = reference to completed order
+
+### 4. Create Order Record
+
+A `CompletedOrder` document is created:
+
+```javascript
+{
+  userid: ObjectId,
+  projectid: ObjectId,
+  orderid: String,
+  months: Number,
+  amount: Number,
+  plan: "pro",
+  status: "completed",
+  createdAt: Date
+}
+```
+
+## Usage Limits by Plan
+
+Plan limits are defined in `/src/constants/planLimits.js`:
+
+```javascript
+// Free tier
+{
+  maxProjects: 3,
+  maxRequestsPerMonth: 100000,
+  buildTimeout: 600,  // 10 minutes
+  maxBuildSize: 512   // MB
+}
+
+// Pro tier
+{
+  maxProjects: 10,
+  maxRequestsPerMonth: 1000000,
+  buildTimeout: 1800,  // 30 minutes
+  maxBuildSize: 2048   // MB
+}
+```
+
+<Note>
+  When a project reaches its request limit, further requests may be throttled or blocked depending on the plan enforcement strategy.
+</Note>
+
+## Price Information
+
+Pricing is defined in `/src/constants/planPrice.js`:
+
+```javascript
+{
+  pro: {
+    monthly: 999,  // $9.99 (in cents)
+    currency: 'USD'
+  }
+}
+```
+
+## Error Responses
+
+### 404 Not Found
+
+```json
+{
+  "success": false,
+  "message": "Project not found"
+}
+```
+
+Returned when:
+- Project ID doesn't exist
+- Project doesn't belong to authenticated user
+- Project status is 'deleted'
+
+### 500 Server Error
+
+```json
+{
+  "success": false,
+  "message": "Server error"
+}
+```
+
+## Billing Dashboard Components
+
+When building a billing dashboard, include:
+
+<CardGroup cols={2}>
+  <Card title="Current Plan" icon="layer-group">
+    Display plan name, start/end dates, and days remaining
+  </Card>
+  <Card title="Usage Metrics" icon="chart-line">
+    Show total requests and percentage of monthly limit used
+  </Card>
+  <Card title="Payment History" icon="receipt">
+    List recent orders with dates, amounts, and status
+  </Card>
+  <Card title="Renewal Options" icon="rotate">
+    Provide upgrade/renewal buttons based on current plan
+  </Card>
+</CardGroup>
+
+## Automatic Renewal
+
+The system includes renewal endpoints:
+
+- `POST /api/subscription/renew` - Initialize renewal
+- `POST /api/subscription/verify` - Verify renewal payment
+- `GET /api/subscription/renewInfo` - Get renewal information
+
+Renewal extends the `endDate` by the purchased number of months without interrupting service.
+
+<Note>
+  Projects on the free tier can be upgraded to pro at any time. Pro tier projects can be renewed before expiration to extend the subscription period.
+</Note>

@@ -1,0 +1,397 @@
+---
+title: "Project Settings"
+api: "GET /api/projects/:id/settings"
+description: "Retrieve and update project configuration settings"
+---
+
+## Get Project Settings
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project (MongoDB ObjectId)
+</ParamField>
+
+### Authentication
+
+Requires JWT authentication via the `verifyJWT` middleware.
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  Indicates whether the request was successful
+</ResponseField>
+
+<ResponseField name="project" type="object" required>
+  Project settings data
+  
+  <Expandable title="Project fields">
+    <ResponseField name="_id" type="string">
+      Project unique identifier
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Project name
+    </ResponseField>
+    
+    <ResponseField name="projectType" type="string">
+      Type of project: `static` or `node`
+    </ResponseField>
+    
+    <ResponseField name="settings" type="object">
+      General project settings
+      
+      <Expandable title="Settings fields">
+        <ResponseField name="repoBranchName" type="string">
+          Git branch to deploy from (default: `main`)
+        </ResponseField>
+        
+        <ResponseField name="folder" type="object">
+          Subfolder configuration
+          
+          <Expandable title="Folder fields">
+            <ResponseField name="enabled" type="boolean">
+              Whether to deploy from a specific folder
+            </ResponseField>
+            
+            <ResponseField name="name" type="string">
+              Folder path when enabled (required if enabled is true)
+            </ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="buildCommand" type="string | undefined">
+      Command to build the project (e.g., `npm run build`, `yarn build`)
+    </ResponseField>
+    
+    <ResponseField name="publishDir" type="string | undefined">
+      Directory containing build output for static sites (e.g., `dist`, `build`, `out`)
+    </ResponseField>
+    
+    <ResponseField name="startCommand" type="string | undefined">
+      Command to start Node.js applications (e.g., `node server.js`, `npm start`)
+    </ResponseField>
+    
+    <ResponseField name="port" type="number | undefined">
+      Port number for Node.js applications
+    </ResponseField>
+    
+    <ResponseField name="env" type="object">
+      Environment variables as key-value pairs
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp of project creation
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/settings" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "65f3a2b1c4d5e6f7g8h9i0j1",
+    "name": "my-react-app",
+    "projectType": "static",
+    "settings": {
+      "repoBranchName": "main",
+      "folder": {
+        "enabled": false,
+        "name": ""
+      }
+    },
+    "buildCommand": "npm run build",
+    "publishDir": "dist",
+    "env": {
+      "VITE_API_URL": "https://api.example.com",
+      "VITE_ENV": "production"
+    },
+    "createdAt": "2024-03-15T10:30:00.000Z"
+  }
+}
+```
+
+---
+
+## Update General Settings
+
+<api>PATCH /api/projects/:id/settings/general</api>
+
+Update project name, branch, and folder settings.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project
+</ParamField>
+
+### Request Body
+
+<ParamField body="name" type="string">
+  New project name (will be trimmed)
+</ParamField>
+
+<ParamField body="repoBranchName" type="string">
+  Git branch to deploy from (will be trimmed)
+</ParamField>
+
+<ParamField body="folder" type="object">
+  Subfolder configuration
+  
+  <Expandable title="Folder object">
+    <ParamField body="enabled" type="boolean" required>
+      Whether to deploy from a subfolder
+    </ParamField>
+    
+    <ParamField body="name" type="string">
+      Folder path (required when enabled is true, must not be empty)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Validation Rules
+
+- `name` must not be empty after trimming
+- `repoBranchName` will be trimmed if provided
+- If `folder.enabled` is true, `folder.name` is required and validated by the model
+- If `folder.enabled` is false, `folder.name` is set to empty string
+
+### Example Request
+
+```bash
+curl -X PATCH "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/settings/general" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-updated-app",
+    "repoBranchName": "production",
+    "folder": {
+      "enabled": true,
+      "name": "client"
+    }
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "65f3a2b1c4d5e6f7g8h9i0j1",
+    "name": "my-updated-app",
+    "settings": {
+      "repoBranchName": "production",
+      "folder": {
+        "enabled": true,
+        "name": "client"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Update Build Settings
+
+<api>PATCH /api/projects/:id/settings/build</api>
+
+Update build and deployment configuration.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project
+</ParamField>
+
+### Request Body
+
+<ParamField body="buildCommand" type="string">
+  Command to build the project. Can be empty string to clear.
+</ParamField>
+
+<ParamField body="publishDir" type="string">
+  Output directory for static sites. Can be empty string to clear.
+</ParamField>
+
+<ParamField body="startCommand" type="string">
+  Start command for Node.js projects. Can be empty string to clear.
+</ParamField>
+
+<ParamField body="port" type="number">
+  Port number for Node.js projects. Set to null/undefined to clear.
+</ParamField>
+
+### Example Request (Static Site)
+
+```bash
+curl -X PATCH "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/settings/build" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "buildCommand": "npm run build",
+    "publishDir": "dist"
+  }'
+```
+
+### Example Request (Node.js App)
+
+```bash
+curl -X PATCH "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/settings/build" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "buildCommand": "npm install",
+    "startCommand": "node server.js",
+    "port": 3000
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "65f3a2b1c4d5e6f7g8h9i0j1",
+    "buildCommand": "npm install",
+    "publishDir": null,
+    "startCommand": "node server.js",
+    "port": 3000
+  }
+}
+```
+
+---
+
+## Update Environment Variables
+
+<api>PATCH /api/projects/:id/settings/env</api>
+
+Update project environment variables. This replaces all existing environment variables.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project
+</ParamField>
+
+### Request Body
+
+<ParamField body="env" type="object" required>
+  Key-value pairs of environment variables. All values must be strings.
+</ParamField>
+
+### Validation Rules
+
+- `env` must be a plain object (not an array)
+- Environment variable keys cannot be empty or whitespace-only
+- All keys are trimmed and validated
+- Passing an empty object `{}` will clear all environment variables
+
+### Example Request
+
+```bash
+curl -X PATCH "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/settings/env" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "env": {
+      "NODE_ENV": "production",
+      "API_URL": "https://api.example.com",
+      "DATABASE_URL": "postgresql://...",
+      "SECRET_KEY": "your-secret-key"
+    }
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true
+}
+```
+
+### Error Response (Invalid Key)
+
+```json
+{
+  "success": false,
+  "message": "Empty env key not allowed"
+}
+```
+
+### Error Response (Invalid Type)
+
+```json
+{
+  "success": false,
+  "message": "env must be a key-value object"
+}
+```
+
+---
+
+## Common Error Responses
+
+<ResponseField name="404 Not Found">
+  Returned when:
+  - Project with the specified ID doesn't exist
+  - Project doesn't belong to the authenticated user
+  - Project has been deleted
+  
+  ```json
+  {
+    "success": false,
+    "message": "Project not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500 Internal Server Error">
+  Returned when a server error occurs
+  
+  ```json
+  {
+    "success": false,
+    "message": "Server error"
+  }
+  ```
+</ResponseField>
+
+## Implementation Notes
+
+### General Settings Update
+- Uses `findOneAndUpdate` with `runValidators: true` and `context: 'query'`
+- Only updates fields that are provided in the request body
+- Folder name validation is enforced by the Mongoose schema
+- Returns updated `name` and `settings` fields only
+
+### Build Settings Update
+- Accepts `undefined` to skip updating a field
+- Port is parsed as integer if provided
+- Returns only the updated build-related fields
+
+### Environment Variables Update
+- Stores environment variables as a MongoDB Map internally
+- Completely replaces existing environment variables
+- Keys are validated to prevent empty strings
+- Does not return the environment variables in the response (for security)
+
+## Source Reference
+
+- GET: `backend/src/controllers/slices/Project/settings.js:4`
+- PATCH general: `backend/src/controllers/slices/Project/settings.js:36`
+- PATCH build: `backend/src/controllers/slices/Project/settings.js:70`
+- PATCH env: `backend/src/controllers/slices/Project/settings.js:96`

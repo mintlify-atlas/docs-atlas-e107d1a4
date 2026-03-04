@@ -1,0 +1,422 @@
+---
+title: 'Project Settings'
+description: 'Configure general settings, build commands, and environment variables'
+---
+
+## Overview
+
+Project settings are divided into three categories: general settings, build settings, and environment variables. Each can be updated independently through dedicated endpoints.
+
+## Get Project Settings
+
+<Card title="GET /api/projects/:id/settings" icon="gear">
+  Retrieve all project settings including general, build, and environment configuration.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "507f1f77bcf86cd799439011",
+    "name": "my-website",
+    "projectType": "static",
+    "settings": {
+      "repoBranchName": "main",
+      "folder": {
+        "enabled": false,
+        "name": ""
+      }
+    },
+    "buildCommand": "npm run build",
+    "publishDir": "dist",
+    "startCommand": null,
+    "port": null,
+    "env": {
+      "API_KEY": "your-api-key",
+      "NODE_ENV": "production"
+    },
+    "createdAt": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+## General Settings
+
+### Update General Settings
+
+<Card title="PATCH /api/projects/:id/settings/general" icon="sliders">
+  Update project name, branch, and folder configuration.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Request Body:**
+
+<ParamField body="name" type="string">
+  Project display name (trimmed automatically)
+</ParamField>
+
+<ParamField body="repoBranchName" type="string">
+  Git branch to deploy from (default: "main")
+</ParamField>
+
+<ParamField body="folder" type="object">
+  Configuration for monorepo or subfolder deployments
+  
+  **Properties:**
+  - `enabled` (boolean): Whether to deploy from a subfolder
+  - `name` (string): Subfolder path (required if `enabled` is true)
+</ParamField>
+
+**Example Request:**
+
+```json
+{
+  "name": "My Updated Website",
+  "repoBranchName": "production",
+  "folder": {
+    "enabled": true,
+    "name": "apps/frontend"
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "507f1f77bcf86cd799439011",
+    "name": "My Updated Website",
+    "settings": {
+      "repoBranchName": "production",
+      "folder": {
+        "enabled": true,
+        "name": "apps/frontend"
+      }
+    }
+  }
+}
+```
+
+<Note>
+  **Folder Validation:** If `folder.enabled` is true, `folder.name` must be provided. The validator will return an error if the name is missing.
+</Note>
+
+### Settings Schema
+
+The settings object in the project model:
+
+```javascript
+settings: {
+  repoBranchName: {
+    type: String,
+    default: "main"
+  },
+  folder: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    name: {
+      type: String,
+      validate: {
+        validator: function (value) {
+          if (this.folder?.enabled && !value) {
+            return false;
+          }
+          return true;
+        },
+        message: "Folder name is required when folder is enabled"
+      }
+    }
+  }
+}
+```
+
+## Build Settings
+
+### Update Build Settings
+
+<Card title="PATCH /api/projects/:id/settings/build" icon="hammer">
+  Update build commands and configuration based on project type.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Request Body:**
+
+<ParamField body="buildCommand" type="string">
+  Command to build the project (for static projects)
+  
+  Examples: `npm run build`, `yarn build`, `pnpm build`
+</ParamField>
+
+<ParamField body="publishDir" type="string">
+  Output directory after build (for static projects)
+  
+  Examples: `dist`, `build`, `out`, `.next`
+</ParamField>
+
+<ParamField body="startCommand" type="string">
+  Command to start the server (for Node.js projects)
+  
+  Examples: `node server.js`, `npm start`, `yarn start`
+</ParamField>
+
+<ParamField body="port" type="number">
+  Port the application listens on (for Node.js projects)
+  
+  Must match the port in your application code
+</ParamField>
+
+**Example for Static Project:**
+
+```json
+{
+  "buildCommand": "npm run build",
+  "publishDir": "dist"
+}
+```
+
+**Example for Node Project:**
+
+```json
+{
+  "startCommand": "node server.js",
+  "port": 3000
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "project": {
+    "buildCommand": "npm run build",
+    "publishDir": "dist",
+    "startCommand": null,
+    "port": null
+  }
+}
+```
+
+### Build Configuration by Project Type
+
+<CardGroup cols={2}>
+  <Card title="Static Projects" icon="file-code">
+    **Required:**
+    - `buildCommand`
+    - `publishDir`
+    
+    **Internal Port:** 80
+  </Card>
+  <Card title="Node Projects" icon="node-js">
+    **Required:**
+    - `startCommand`
+    - `port`
+    
+    **Port:** User-defined
+  </Card>
+</CardGroup>
+
+## Environment Variables
+
+### Update Environment Variables
+
+<Card title="PATCH /api/projects/:id/settings/env" icon="key">
+  Set or update environment variables for the project.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Request Body:**
+
+<ParamField body="env" type="object" required>
+  Key-value pairs of environment variables. Must be an object (not an array).
+  
+  Empty keys are not allowed and will return a 400 error.
+</ParamField>
+
+**Example Request:**
+
+```json
+{
+  "env": {
+    "API_KEY": "your-api-key-here",
+    "NODE_ENV": "production",
+    "DATABASE_URL": "mongodb://...",
+    "NEXT_PUBLIC_API_URL": "https://api.example.com"
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true
+}
+```
+
+### Environment Variable Storage
+
+Environment variables are stored as a MongoDB Map:
+
+```javascript
+env: {
+  type: Map,
+  of: String
+}
+```
+
+**Key Points:**
+- Variables are converted to a Map internally: `new Map(Object.entries(env))`
+- When retrieved, the Map is converted back to a plain object
+- All values are stored as strings
+- Empty or whitespace-only keys are rejected
+
+<Note>
+  **Complete Replacement:** This endpoint replaces all environment variables. To preserve existing variables, include them in your request along with any new or updated variables.
+</Note>
+
+### Reading Environment Variables
+
+Environment variables are returned in the GET settings response:
+
+```javascript
+// The controller converts Map to object
+let env = {};
+if (project.env) {
+  if (project.env instanceof Map) {
+    env = Object.fromEntries(project.env);
+  } else if (typeof project.env === 'object') {
+    env = { ...project.env };
+  }
+}
+```
+
+## Delete Project
+
+<Card title="DELETE /api/projects/:id" icon="trash">
+  Soft-delete a project by setting its status to 'deleted'.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Project deleted"
+}
+```
+
+<Note>
+  **Soft Delete:** Projects are not permanently removed from the database. The status is set to `'deleted'`, and they are excluded from all queries that filter by `status: { $ne: 'deleted' }`.
+</Note>
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "success": false,
+  "message": "Empty env key not allowed"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "success": false,
+  "message": "Project not found"
+}
+```
+
+Returned when:
+- Project ID doesn't exist
+- Project doesn't belong to authenticated user
+- Project status is 'deleted'
+
+### 500 Server Error
+
+```json
+{
+  "success": false,
+  "message": "Server error"
+}
+```
+
+## Example: Update All Settings
+
+```javascript
+// 1. Update general settings
+await fetch(`/api/projects/${projectId}/settings/general`, {
+  method: 'PATCH',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  },
+  body: JSON.stringify({
+    name: 'Production Site',
+    repoBranchName: 'main',
+    folder: { enabled: false }
+  })
+});
+
+// 2. Update build settings
+await fetch(`/api/projects/${projectId}/settings/build`, {
+  method: 'PATCH',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  },
+  body: JSON.stringify({
+    buildCommand: 'npm run build',
+    publishDir: 'dist'
+  })
+});
+
+// 3. Update environment variables
+await fetch(`/api/projects/${projectId}/settings/env`, {
+  method: 'PATCH',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  },
+  body: JSON.stringify({
+    env: {
+      NODE_ENV: 'production',
+      API_KEY: 'secret-key'
+    }
+  })
+});
+```
+
+## Settings Update Context
+
+The general settings endpoint uses `runValidators: true` and `context: 'query'` to ensure proper validation:
+
+```javascript
+const project = await Model.Project.findOneAndUpdate(
+  { _id: req.params.id, owner: req.user._id, status: { $ne: 'deleted' } },
+  { $set: update },
+  {
+    returnDocument: 'after',
+    runValidators: true,
+    context: 'query'  // ✅ VERY IMPORTANT for folder validation
+  }
+);
+```
+
+This ensures the folder name validator runs correctly when updating settings.

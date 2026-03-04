@@ -1,0 +1,432 @@
+---
+title: Deploy Node.js Applications
+description: Deploy Express, Fastify, Nest.js, and other Node.js backend applications
+---
+
+DeployHub supports deploying Node.js backend applications with customizable start commands and port configuration.
+
+## Supported Frameworks
+
+- Express.js
+- Fastify
+- Nest.js
+- Koa
+- Hapi
+- Any Node.js application with a start command
+
+## Project Type Configuration
+
+<Note>
+When creating a deployment, you must set `projectType: "node"` for Node.js applications.
+</Note>
+
+## Required Configuration
+
+Node.js applications require two mandatory fields:
+
+### Start Command
+
+The command to start your application. This runs inside the Docker container.
+
+**Common examples:**
+
+<CodeGroup>
+```json Express.js
+{
+  "startCommand": "node index.js"
+}
+```
+
+```json With npm script
+{
+  "startCommand": "npm start"
+}
+```
+
+```json Nest.js
+{
+  "startCommand": "npm run start:prod"
+}
+```
+
+```json PM2
+{
+  "startCommand": "pm2-runtime start ecosystem.config.js"
+}
+```
+</CodeGroup>
+
+### Port
+
+The port your application listens on. Must match the port in your application code.
+
+```json
+{
+  "port": 3000
+}
+```
+
+<Warning>
+The `port` value must match the port your application binds to in code:
+
+```javascript
+app.listen(3000); // port must be 3000 in config
+```
+</Warning>
+
+## Deployment API Request
+
+<Steps>
+  <Step title="Prepare your deployment configuration">
+    Create a deployment request with all required fields:
+
+    ```json
+    {
+      "projectId": "507f1f77bcf86cd799439011",
+      "name": "my-express-api",
+      "codeLink": "https://github.com/username/my-api.git",
+      "projectType": "node",
+      "startCommand": "node server.js",
+      "port": 3000,
+      "branchname": "main",
+      "isFolder": false
+    }
+    ```
+  </Step>
+
+  <Step title="Send POST request to create deployment">
+    ```bash
+    curl -X POST https://api.deployhub.cloud/api/deployment/create \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -d '{
+        "projectId": "507f1f77bcf86cd799439011",
+        "name": "my-express-api",
+        "codeLink": "https://github.com/username/my-api",
+        "projectType": "node",
+        "startCommand": "node server.js",
+        "port": 3000,
+        "branchname": "main",
+        "isFolder": false
+      }'
+    ```
+  </Step>
+
+  <Step title="Monitor deployment status">
+    The build worker will:
+    - Clone your repository
+    - Install production dependencies with `npm ci --omit=dev`
+    - Create a Docker image with Node.js 20 Alpine
+    - Deploy the container with your start command
+  </Step>
+</Steps>
+
+## Environment Variables
+
+Add runtime environment variables for your application:
+
+```json
+{
+  "env": {
+    "NODE_ENV": "production",
+    "DATABASE_URL": "postgresql://user:pass@host:5432/db",
+    "API_KEY": "your-secret-key",
+    "JWT_SECRET": "your-jwt-secret"
+  }
+}
+```
+
+<Note>
+Environment variables are passed to the container at runtime and are available to your Node.js application via `process.env`.
+</Note>
+
+## Build Process Details
+
+When you deploy a Node.js application, DeployHub:
+
+1. **Clones your repository** from the specified branch
+2. **Installs production dependencies** using `npm ci --omit=dev`
+3. **Builds Docker image** with Node.js 20 Alpine
+4. **Sets up environment variables** including PORT and START_CMD
+5. **Deploys container** with your specified start command and port
+6. **Connects to network** for routing traffic
+
+## Dockerfile Template
+
+DeployHub uses this Dockerfile for Node.js deployments:
+
+```dockerfile
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY . .
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app /app
+
+RUN npm cache clean --force
+
+ARG APP_PORT=3000
+ENV PORT=$APP_PORT
+EXPOSE $APP_PORT
+
+ARG START_CMD="node index.js"
+ENV START_CMD=$START_CMD
+
+CMD ["sh", "-c", "$START_CMD"]
+```
+
+## Container Configuration
+
+From the deploy worker source code:
+
+```javascript
+const envVariables = [];
+if (projectData.env) {
+  for (const [key, value] of Object.entries(projectData.env)) {
+    envVariables.push(`${key}=${value}`);
+  }
+}
+
+const container = await docker.createContainer({
+  Image: imageName,
+  name: bindingData.subdomain,
+  Env: envVariables,
+  HostConfig: {
+    NetworkMode: "users"
+  }
+});
+
+await container.start();
+```
+
+## Framework-Specific Examples
+
+### Express.js
+
+```json
+{
+  "projectType": "node",
+  "startCommand": "node server.js",
+  "port": 3000,
+  "env": {
+    "NODE_ENV": "production",
+    "DATABASE_URL": "postgresql://localhost/mydb"
+  }
+}
+```
+
+**server.js:**
+```javascript
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.json({ message: 'Hello from DeployHub!' });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+```
+
+### Nest.js
+
+```json
+{
+  "projectType": "node",
+  "startCommand": "npm run start:prod",
+  "port": 3000,
+  "env": {
+    "NODE_ENV": "production",
+    "DATABASE_HOST": "localhost"
+  }
+}
+```
+
+### Fastify
+
+```json
+{
+  "projectType": "node",
+  "startCommand": "node app.js",
+  "port": 8080,
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
+```
+
+**app.js:**
+```javascript
+const fastify = require('fastify')({ logger: true });
+const PORT = process.env.PORT || 8080;
+
+fastify.get('/', async (request, reply) => {
+  return { hello: 'world' };
+});
+
+fastify.listen({ port: PORT, host: '0.0.0.0' });
+```
+
+### Custom Build + Start
+
+```json
+{
+  "projectType": "node",
+  "startCommand": "npm run migrate && npm start",
+  "port": 4000,
+  "env": {
+    "NODE_ENV": "production",
+    "DATABASE_URL": "postgresql://localhost/mydb"
+  }
+}
+```
+
+## Validation Rules
+
+DeployHub validates your configuration:
+
+<Warning>
+**Required for Node.js projects:**
+- `projectType` must be `"node"`
+- `startCommand` is required and cannot be empty
+- `port` is required and must be a number
+- `branchname` is required
+- `isFolder` must be a boolean
+</Warning>
+
+From the validation schema:
+
+```javascript
+body("startCommand")
+  .if(body("projectType").equals("node"))
+  .notEmpty()
+  .withMessage("Start command is required for node project")
+
+body('port')
+  .if(body("projectType").equals('node'))
+  .notEmpty()
+  .withMessage('port is required for node')
+```
+
+## Database Connections
+
+For applications that need databases:
+
+```json
+{
+  "env": {
+    "NODE_ENV": "production",
+    "DATABASE_URL": "postgresql://user:password@host:5432/database",
+    "REDIS_URL": "redis://localhost:6379",
+    "MONGODB_URI": "mongodb://user:password@host:27017/database"
+  }
+}
+```
+
+<Note>
+Make sure your database is accessible from DeployHub's network. Use connection pooling for better performance.
+</Note>
+
+## Updating Runtime Settings
+
+You can update runtime settings after deployment:
+
+```bash
+curl -X PATCH https://api.deployhub.cloud/api/projects/:id/settings/build \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "startCommand": "npm run start:prod",
+    "port": 3000
+  }'
+```
+
+<Warning>
+Changing these settings requires a redeployment to take effect.
+</Warning>
+
+## Health Checks
+
+Implement health check endpoints in your application:
+
+```javascript
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+```
+
+## Troubleshooting
+
+### Application Won't Start
+
+- Verify your `startCommand` is correct
+- Check that the entry point file exists
+- Review application logs for errors
+- Ensure all dependencies are in `package.json`
+
+### Port Binding Issues
+
+- Verify the `port` in config matches your code
+- Ensure your app binds to `0.0.0.0`, not just `localhost`:
+  ```javascript
+  app.listen(PORT, '0.0.0.0'); // Correct
+  ```
+
+### Environment Variables Not Working
+
+- Check that variable names are correct
+- Verify you're reading from `process.env`
+- Environment variables are available at runtime, not build time
+
+### Dependencies Missing
+
+- Ensure all dependencies are in `dependencies`, not `devDependencies`
+- The build uses `npm ci --omit=dev` which skips dev dependencies
+
+## Build Arguments
+
+The build process passes these arguments to Docker:
+
+```javascript
+buildargs: {
+  APP_PORT: String(projectdata.port),
+  START_CMD: projectdata.startCommand
+}
+```
+
+## Redeployment
+
+Redeployments check for new commits and rebuild if necessary:
+
+```javascript
+const isBuildFailed = buildData.status === "failed";
+const isNewCommit = commitSha && buildData.commitSha !== commitSha;
+
+if (isBuildFailed || isNewCommit) {
+  // Rebuild from source
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deploy Static Sites" icon="browser" href="/deployment/static-sites">
+    Learn how to deploy frontend applications
+  </Card>
+  <Card title="Monorepo Support" icon="folder-tree" href="/deployment/monorepo-support">
+    Deploy from specific folders in monorepos
+  </Card>
+  <Card title="Branch Management" icon="code-branch" href="/deployment/branch-management">
+    Configure branch and commit tracking
+  </Card>
+</CardGroup>

@@ -1,0 +1,246 @@
+---
+title: "Project Domains"
+api: "GET /api/projects/:id/domains"
+description: "Retrieve and update domain configuration for a project"
+---
+
+## Get Project Domains
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project (MongoDB ObjectId)
+</ParamField>
+
+### Authentication
+
+Requires JWT authentication via the `verifyJWT` middleware.
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  Indicates whether the request was successful
+</ResponseField>
+
+<ResponseField name="project" type="object" required>
+  Domain configuration for the project
+  
+  <Expandable title="Project fields">
+    <ResponseField name="_id" type="string">
+      Project unique identifier
+    </ResponseField>
+    
+    <ResponseField name="subdomain" type="string">
+      The DeployHub subdomain (e.g., `my-app` in `my-app.deployhub.online`)
+    </ResponseField>
+    
+    <ResponseField name="hascustomDomain" type="boolean">
+      Whether a custom domain is configured for this project
+    </ResponseField>
+    
+    <ResponseField name="customDomain" type="string | undefined">
+      The custom domain if configured (e.g., `www.example.com`)
+    </ResponseField>
+    
+    <ResponseField name="plan" type="string">
+      Current subscription plan: `free` or `pro`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/domains" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "65f3a2b1c4d5e6f7g8h9i0j1",
+    "subdomain": "my-app",
+    "hascustomDomain": false,
+    "plan": "free"
+  }
+}
+```
+
+### Example Response (With Custom Domain)
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "65f3a2b1c4d5e6f7g8h9i0j1",
+    "subdomain": "my-app",
+    "hascustomDomain": true,
+    "customDomain": "www.example.com",
+    "plan": "pro"
+  }
+}
+```
+
+---
+
+## Update Subdomain
+
+<api>PATCH /api/projects/:id/domains/subdomain</api>
+
+Update the DeployHub subdomain for a project. This triggers a container recreation with the new subdomain.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project
+</ParamField>
+
+### Request Body
+
+<ParamField body="subdomain" type="string" required>
+  The new subdomain. Must be 3-40 characters long, containing only lowercase letters, numbers, and hyphens.
+</ParamField>
+
+### Validation Rules
+
+- **Pattern:** Must match regex `/^[a-z0-9-]{3,40}$/`
+- **Length:** 3-40 characters
+- **Characters:** Lowercase letters (a-z), numbers (0-9), hyphens (-) only
+- **Uniqueness:** Subdomain must not be taken by another active project
+- **Invalid examples:**
+  - `MY-APP` (uppercase not allowed)
+  - `my_app` (underscores not allowed)
+  - `ab` (too short)
+  - `my app` (spaces not allowed)
+
+### Behavior
+
+1. Validates subdomain format and uniqueness
+2. Updates the subdomain in the project document
+3. Sets project status to `building`
+4. Updates the port binding allocation
+5. Updates Redis cache with new subdomain mapping
+6. Queues a container recreation job
+7. Project will rebuild and restart with the new subdomain
+
+### Example Request
+
+```bash
+curl -X PATCH "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/domains/subdomain" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subdomain": "my-awesome-app"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "subdomain": "my-awesome-app",
+  "message": "Subdomain updated. Project is restarting."
+}
+```
+
+---
+
+## Error Responses
+
+<ResponseField name="400 Bad Request - Invalid Format">
+  Returned when the subdomain doesn't meet validation requirements
+  
+  ```json
+  {
+    "success": false,
+    "message": "Invalid subdomain. Use lowercase letters, numbers, hyphens (3-40 chars)."
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="404 Not Found">
+  Returned when:
+  - Project with the specified ID doesn't exist
+  - Project doesn't belong to the authenticated user
+  - Project has been deleted
+  
+  ```json
+  {
+    "success": false,
+    "message": "Project not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="409 Conflict">
+  Returned when the subdomain is already taken by another project
+  
+  ```json
+  {
+    "success": false,
+    "message": "This subdomain is already taken. Please choose another."
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500 Internal Server Error">
+  Returned when a server error occurs during the update process
+  
+  ```json
+  {
+    "success": false,
+    "message": "Server error"
+  }
+  ```
+</ResponseField>
+
+## Implementation Notes
+
+### Subdomain Update Process
+
+1. **Validation Phase:**
+   - Checks subdomain format using regex validation
+   - Queries database to ensure subdomain is not already taken
+   - Ignores the current project when checking uniqueness
+   - Excludes deleted projects from uniqueness check
+
+2. **Update Phase:**
+   - Updates project document with new subdomain
+   - Sets status to `building` (bypasses validation)
+   - Updates the Binding (port allocation) document
+   - Removes old subdomain from Redis cache
+   - Creates new Redis cache entry with port mapping
+
+3. **Recreation Phase:**
+   - Queues a job to `deployhub-recreate-container` queue
+   - Job data includes: `projectId`, `oldcontainername`, `newcontainername`
+   - Container is recreated with the new subdomain
+   - Project becomes accessible at `{new-subdomain}.deployhub.online`
+
+### Redis Cache Structure
+
+The subdomain cache stores:
+- **Key:** `subdomain:{subdomain}`
+- **Value (hash):**
+  - `port`: Internal port number for routing
+  - `projectId`: Project identifier
+  - `plan`: Subscription plan for rate limiting
+
+### Downtime
+
+Updating a subdomain causes temporary downtime as the container is recreated. During this time:
+- Project status is `building`
+- The old subdomain becomes inaccessible
+- The new subdomain is not yet available
+- Typical recreation time: 1-3 minutes depending on project size
+
+### Custom Domains
+
+This endpoint only handles DeployHub subdomains. Custom domain configuration (for pro plan users) is handled separately and requires DNS verification.
+
+## Source Reference
+
+- GET domains: `backend/src/controllers/slices/Project/domain.controller.js:6`
+- PATCH subdomain: `backend/src/controllers/slices/Project/domain.controller.js:29`

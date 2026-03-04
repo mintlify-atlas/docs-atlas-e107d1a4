@@ -1,0 +1,346 @@
+---
+title: 'Build History'
+description: 'View build status, history, and logs for your projects'
+---
+
+## Overview
+
+Builds represent individual deployment attempts for your project. Each build tracks the commit SHA, build status, timing information, and logs.
+
+## Build Model
+
+Each build in the system contains:
+
+```javascript
+{
+  project: ObjectId,        // Reference to Project
+  commitSha: String,        // Git commit hash
+  status: String,           // 'pending', 'success', 'failed'
+  startedAt: Date,          // Build start timestamp
+  finishedAt: Date,         // Build completion timestamp
+  dockerImage: String,      // Generated Docker image name
+  logUrl: String,           // URL to build logs
+  createdAt: Date,          // Record creation time
+  updatedAt: Date           // Record update time
+}
+```
+
+## Build Status States
+
+<CardGroup cols={3}>
+  <Card title="pending" icon="clock">
+    Build is queued or in progress
+  </Card>
+  <Card title="success" icon="check-circle">
+    Build completed successfully
+  </Card>
+  <Card title="failed" icon="exclamation-circle">
+    Build process failed
+  </Card>
+</CardGroup>
+
+## Get Project Builds
+
+<Card title="GET /api/projects/:id/builds" icon="list">
+  Retrieve build history for a project (up to 50 most recent builds).
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Path Parameters:**
+
+<ParamField path="id" type="string" required>
+  Project ID (MongoDB ObjectId)
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "total": 8,
+  "builds": [
+    {
+      "_id": "507f1f77bcf86cd799439012",
+      "commitSha": "a3f5d2c8e1b4f6a9d2c3e4f5a6b7c8d9",
+      "status": "success",
+      "startedAt": "2024-01-20T14:20:00.000Z",
+      "finishedAt": "2024-01-20T14:22:34.000Z",
+      "logUrl": "https://logs.deployhub.online/builds/507f1f77bcf86cd799439012",
+      "createdAt": "2024-01-20T14:20:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439011",
+      "commitSha": "b4c6e3d9f2a5b7c8d1e3f4a5b6c7d8e9",
+      "status": "failed",
+      "startedAt": "2024-01-18T10:15:00.000Z",
+      "finishedAt": "2024-01-18T10:16:22.000Z",
+      "logUrl": "https://logs.deployhub.online/builds/507f1f77bcf86cd799439011",
+      "createdAt": "2024-01-18T10:15:00.000Z"
+    }
+  ]
+}
+```
+
+**Query Details:**
+
+```javascript
+const builds = await Model.Build.find({ project: req.params.id })
+  .select('commitSha status startedAt finishedAt logUrl createdAt')
+  .sort({ createdAt: -1 })
+  .limit(50)
+  .lean();
+```
+
+<Note>
+  Builds are sorted by creation date in descending order (newest first) and limited to 50 results.
+</Note>
+
+## Get Single Build
+
+<Card title="GET /api/projects/:id/builds/:buildId" icon="info-circle">
+  Retrieve detailed information for a specific build.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Path Parameters:**
+
+<ParamField path="id" type="string" required>
+  Project ID (MongoDB ObjectId)
+</ParamField>
+
+<ParamField path="buildId" type="string" required>
+  Build ID (MongoDB ObjectId)
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "build": {
+    "_id": "507f1f77bcf86cd799439012",
+    "commitSha": "a3f5d2c8e1b4f6a9d2c3e4f5a6b7c8d9",
+    "status": "success",
+    "startedAt": "2024-01-20T14:20:00.000Z",
+    "finishedAt": "2024-01-20T14:22:34.000Z",
+    "logUrl": "https://logs.deployhub.online/builds/507f1f77bcf86cd799439012",
+    "dockerImage": "deployhub/my-website-a3f5k2:a3f5d2c8",
+    "createdAt": "2024-01-20T14:20:00.000Z"
+  }
+}
+```
+
+<Note>
+  The single build endpoint includes the `dockerImage` field, which is not included in the list view.
+</Note>
+
+## Build Indexing
+
+Builds are indexed for efficient querying:
+
+```javascript
+buildSchema.index({ project: 1, createdAt: -1 });
+```
+
+This compound index optimizes queries that:
+- Filter by project ID
+- Sort by creation date in descending order
+
+## Build Creation Process
+
+When a new deployment is created, the build process:
+
+### 1. Fetch Commit SHA
+
+```javascript
+const response = await fetch(
+  `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branchname}`,
+  { headers }
+);
+
+const data = await response.json();
+const commitSha = data?.object?.sha || null;
+```
+
+### 2. Create Build Record
+
+```javascript
+const newBuild = new Model.Build({
+  project: newProject._id,
+  commitSha: commitSha,
+});
+
+await newBuild.save({ validateBeforeSave: false });
+```
+
+### 3. Update Project Reference
+
+```javascript
+newProject.buildId = newBuild._id;
+newProject.totalBuilds += 1;
+await newProject.save({ validateBeforeSave: false });
+```
+
+### 4. Queue Build Job
+
+```javascript
+buildqueue.add("buildqueue", { 
+  buildId: newBuild._id.toString(), 
+  projectId: newProject._id.toString() 
+});
+```
+
+## Build Duration Calculation
+
+Build duration is calculated from the difference between `startedAt` and `finishedAt`:
+
+```javascript
+let duration = null;
+if (lastBuild?.startedAt && lastBuild?.finishedAt) {
+  const ms = new Date(lastBuild.finishedAt) - new Date(lastBuild.startedAt);
+  const secs = Math.floor(ms / 1000);
+  duration = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
+```
+
+**Format:**
+- Less than 60 seconds: `"34s"`
+- 60 seconds or more: `"2m 34s"`
+
+## Total Build Counter
+
+The project maintains a `totalBuilds` counter:
+
+```javascript
+totalBuilds: {
+  type: Number,
+  default: 0
+}
+```
+
+This counter is incremented each time a new build is created, providing a quick reference without counting all build documents.
+
+## Example: Monitor Build Progress
+
+```javascript
+const pollBuildStatus = async (projectId, buildId) => {
+  const response = await fetch(
+    `/api/projects/${projectId}/builds/${buildId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    }
+  );
+  
+  const { build } = await response.json();
+  
+  console.log(`Build status: ${build.status}`);
+  
+  if (build.status === 'pending') {
+    // Continue polling
+    setTimeout(() => pollBuildStatus(projectId, buildId), 5000);
+  } else if (build.status === 'success') {
+    console.log('Build completed successfully!');
+    console.log(`Docker image: ${build.dockerImage}`);
+  } else if (build.status === 'failed') {
+    console.error('Build failed. Check logs:', build.logUrl);
+  }
+};
+```
+
+## Example: Display Build History
+
+```javascript
+const displayBuildHistory = async (projectId) => {
+  const response = await fetch(`/api/projects/${projectId}/builds`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  const { total, builds } = await response.json();
+  
+  console.log(`Total builds: ${total}`);
+  console.log('\nRecent builds:');
+  
+  builds.forEach((build, index) => {
+    const duration = build.finishedAt && build.startedAt
+      ? Math.floor((new Date(build.finishedAt) - new Date(build.startedAt)) / 1000)
+      : 'N/A';
+    
+    console.log(`\n${index + 1}. ${build.commitSha?.substring(0, 7) || 'unknown'}`);
+    console.log(`   Status: ${build.status}`);
+    console.log(`   Duration: ${duration}s`);
+    console.log(`   Created: ${new Date(build.createdAt).toLocaleString()}`);
+  });
+};
+```
+
+## Build Queue System
+
+Builds are processed asynchronously through a queue system:
+
+**Queue Name:** `buildqueue`
+
+**Job Data:**
+```javascript
+{
+  buildId: "507f1f77bcf86cd799439012",
+  projectId: "507f1f77bcf86cd799439011"
+}
+```
+
+**Worker:** `/src/workers/buildworker.js`
+
+The build worker:
+1. Fetches build and project details
+2. Clones the repository
+3. Builds Docker image
+4. Updates build status and timing
+5. Triggers deployment if successful
+
+## Error Responses
+
+### 404 Not Found - Project
+
+```json
+{
+  "success": false,
+  "message": "Project not found"
+}
+```
+
+### 404 Not Found - Build
+
+```json
+{
+  "success": false,
+  "message": "Build not found"
+}
+```
+
+### 500 Server Error
+
+```json
+{
+  "success": false,
+  "message": "Server error"
+}
+```
+
+## Build Logs
+
+The `logUrl` field points to the location of build logs:
+
+```javascript
+logUrl: String  // URL to build logs
+```
+
+Logs are typically stored externally and linked to each build for debugging failed builds or reviewing build output.
+
+<Note>
+  Build logs are generated during the build worker process and stored separately from the build metadata.
+</Note>

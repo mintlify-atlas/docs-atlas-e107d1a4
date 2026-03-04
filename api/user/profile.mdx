@@ -1,0 +1,231 @@
+---
+title: "Profile Management"
+description: "Manage user profile information and profile picture"
+---
+
+## Get User Profile
+
+<RequestExample>
+```bash
+GET /api/me
+```
+</RequestExample>
+
+Retrieves the authenticated user's profile information.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="string">
+  Indicates if the request was successful
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  User profile information
+  
+  <Expandable title="data properties">
+    <ResponseField name="_id" type="string">
+      User's unique identifier
+    </ResponseField>
+    
+    <ResponseField name="fullname" type="string">
+      User's full name
+    </ResponseField>
+    
+    <ResponseField name="email" type="string">
+      User's email address
+    </ResponseField>
+    
+    <ResponseField name="provider" type="string">
+      Authentication provider (`local` or `github`)
+    </ResponseField>
+    
+    <ResponseField name="profilePic" type="string">
+      URL to user's profile picture
+    </ResponseField>
+    
+    <ResponseField name="verified" type="boolean">
+      Whether the user's email is verified
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string">
+      Last update timestamp
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      Account creation timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "data": {
+    "_id": "507f1f77bcf86cd799439011",
+    "fullname": "John Doe",
+    "email": "john@example.com",
+    "provider": "local",
+    "profilePic": "https://cdn.deployhub.online/profile-123.jpg",
+    "verified": true,
+    "updatedAt": "2024-03-15T10:30:00.000Z",
+    "createdAt": "2024-01-10T08:15:00.000Z"
+  },
+  "success": "true"
+}
+```
+</ResponseExample>
+
+---
+
+## Update Profile Picture
+
+<RequestExample>
+```bash
+POST /api/user/profile-pic
+```
+</RequestExample>
+
+Uploads and updates the user's profile picture. Uses multipart/form-data with multer middleware.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `multipart/form-data`
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="profilePic" type="file" required>
+  Image file for the profile picture. Uploaded using multer with diskStorage configuration. Files are temporarily stored in the `uploads/` directory with a unique filename format: `profilePic-{timestamp}-{random}.{ext}`
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string">
+  Success message
+</ResponseField>
+
+<ResponseField name="profilePic" type="string">
+  Public URL of the uploaded profile picture
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "message": "Profile picture updated successfully",
+  "profilePic": "https://cdn.deployhub.online/profile-1234567890.jpg"
+}
+```
+</ResponseExample>
+
+### Implementation Details
+
+- Multer storage configuration uses `diskStorage` with unique filename generation
+- Old profile picture is deleted from Devload storage before uploading new one
+- File is uploaded to Devload CDN and public URL is stored in database
+- Local temporary file is automatically cleaned up after upload
+- Updates both `profilePic` (URL) and `profilefileid` (storage reference) fields
+
+### Error Responses
+
+<ResponseExample>
+```json
+{
+  "message": "File upload failed"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json
+{
+  "message": "File deletion failed"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json
+{
+  "message": "Internal server error"
+}
+```
+</ResponseExample>
+
+---
+
+## Update Full Name
+
+<RequestExample>
+```bash
+PUT /api/user/fullname
+```
+</RequestExample>
+
+Updates the user's full name.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="fullname" type="string" required>
+  New full name for the user
+</ParamField>
+
+<RequestExample>
+```json
+{
+  "fullname": "Jane Smith"
+}
+```
+</RequestExample>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the update was successful
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true
+}
+```
+</ResponseExample>
+
+### Error Responses
+
+<ResponseExample>
+```json
+{
+  "message": "fullname is required"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json
+{
+  "error": "internal Server Error"
+}
+```
+</ResponseExample>

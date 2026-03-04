@@ -1,122 +1,126 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "DeployHub",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#3B82F6",
+    "light": "#60A5FA",
+    "dark": "#2563EB"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/rahulkumar6777/deployhub"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/rahulkumar6777/deployhub"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Features",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "features/deployments",
+              "features/github-integration",
+              "features/custom-domains",
+              "features/environment-variables",
+              "features/build-logs"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Deployment Guide",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "deployment/static-sites",
+              "deployment/nodejs-apps",
+              "deployment/monorepo-support",
+              "deployment/branch-management"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Project Management",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "projects/overview",
+              "projects/settings",
+              "projects/builds",
+              "projects/domains",
+              "projects/billing"
+            ]
+          },
+          {
+            "group": "Subscription & Billing",
+            "pages": [
+              "billing/plans",
+              "billing/usage-limits",
+              "billing/invoices",
+              "billing/payment-methods"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Authentication",
             "pages": [
-              "api-reference/introduction"
+              "api/auth/register",
+              "api/auth/login",
+              "api/auth/logout",
+              "api/auth/github-oauth",
+              "api/auth/refresh-token"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Deployments",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/deployments/create",
+              "api/deployments/redeploy",
+              "api/deployments/list"
+            ]
+          },
+          {
+            "group": "Projects",
+            "pages": [
+              "api/projects/get-meta",
+              "api/projects/overview",
+              "api/projects/settings",
+              "api/projects/builds",
+              "api/projects/domains",
+              "api/projects/delete"
+            ]
+          },
+          {
+            "group": "User Management",
+            "pages": [
+              "api/user/profile",
+              "api/user/dashboard",
+              "api/user/usage",
+              "api/user/invoices",
+              "api/user/repositories"
+            ]
+          },
+          {
+            "group": "Subscriptions",
+            "pages": [
+              "api/subscriptions/init",
+              "api/subscriptions/verify"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

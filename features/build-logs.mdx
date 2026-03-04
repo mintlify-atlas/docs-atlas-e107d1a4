@@ -1,0 +1,615 @@
+---
+title: Build Logs & Monitoring
+description: Real-time build logs and deployment monitoring
+---
+
+DeployHub provides comprehensive build tracking and monitoring capabilities to help you understand your deployment pipeline and troubleshoot issues.
+
+## Build Model
+
+Each build is tracked as a document in the Build collection:
+
+```javascript
+// From build.model.js:3-25
+const buildSchema = new mongoose.Schema({
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Project",
+    required: true,
+    index: true
+  },
+
+  commitSha: String,
+
+  status: {
+    type: String,
+    enum: ['pending', 'success', 'failed'],
+    default: 'pending'
+  },
+
+  startedAt: Date,
+  finishedAt: Date,
+  dockerImage: String,
+  logUrl: String
+}, { timestamps: true });
+
+buildSchema.index({ project: 1, createdAt: -1 });
+```
+
+**Build Statuses:**
+- `pending` - Build queued or in progress
+- `success` - Build completed successfully
+- `failed` - Build encountered an error
+
+<Info>Builds are indexed by project and creation time for fast historical queries.</Info>
+
+## Build Lifecycle
+
+### 1. Build Creation
+
+A new build is created when deployment starts:
+
+```javascript
+// From createDeployment.controller.js:153-156
+const newBuild = new Model.Build({
+  project: newProject._id,
+  commitSha: commitSha,
+});
+
+await newBuild.save({ validateBeforeSave: false });
+```
+
+### 2. Build Queuing
+
+Build is added to BullMQ queue:
+
+```javascript
+// From createDeployment.controller.js:201
+buildqueue.add("buildqueue", { 
+  buildId: newBuild._id.toString(), 
+  projectId: newProject._id.toString() 
+});
+```
+
+### 3. Build Processing
+
+Build worker picks up the job:
+
+```javascript
+// From buildworker.js:34-41
+await Model.Build.findByIdAndUpdate(buildData._id, {
+  status: "pending",
+  startedAt: new Date()
+});
+
+await Model.Project.findByIdAndUpdate(projectData._id, {
+  status: "building"
+});
+```
+
+### 4. Docker Build Logs
+
+Build progress is streamed to stdout:
+
+```javascript
+// From buildworker.js:109-121
+await new Promise((resolve, reject) => {
+  docker.modem.followProgress(
+    tarStream,
+    (err, res) => (err ? reject(err) : resolve(res)),
+    (event) => {
+      if (event.stream) process.stdout.write(event.stream);
+      if (event.error) {
+        console.error("Docker build error:", event.error);
+        reject(new Error(event.error));
+      }
+    },
+  );
+});
+```
+
+**Example Build Output:**
+```
+Step 1/8 : FROM node:20.19.5 AS build
+ ---> abc123def456
+Step 2/8 : WORKDIR /app
+ ---> Running in xyz789
+ ---> def456ghi789
+Step 3/8 : COPY package*.json ./
+ ---> 123abc456def
+Step 4/8 : RUN npm ci
+ ---> Running in 789xyz012
+npm WARN deprecated package@1.0.0
+added 1234 packages in 45s
+```
+
+### 5. Image Push Logs
+
+Image push progress is also streamed:
+
+```javascript
+// From buildworker.js:161-173
+const pushStream = await image.push({
+  authconfig: {
+    username: dockerusername,
+    password: dockerpassword,
+  },
+});
+
+await new Promise((resolve, reject) => {
+  docker.modem.followProgress(
+    pushStream,
+    (err, res) => (err ? reject(err) : resolve(res)),
+    (event) => {
+      if (event.stream) process.stdout.write(event.stream);
+      if (event.error) {
+        console.error("image push error:", event.error);
+        reject(new Error(event.error));
+      }
+    },
+  );
+});
+```
+
+### 6. Build Completion
+
+Successful builds update the database:
+
+```javascript
+// From buildworker.js:236-240
+await Model.Build.findByIdAndUpdate(buildData._id, {
+  status: "success",
+  finishedAt: new Date(),
+  dockerImage: imageName
+});
+```
+
+### 7. Build Failure
+
+Failed builds are marked accordingly:
+
+```javascript
+// From buildworker.js:267-279
+buildWorker.on("failed", async (job, err) => {
+  await Model.Build.findByIdAndUpdate(
+    job.data.buildId,
+    { status: "failed", finishedAt: new Date() },
+    { validateBeforeSave: false },
+  );
+
+  await Model.Project.findByIdAndUpdate(
+    job.data.projectId,
+    { status: "failed-deploy" },
+    { validateBeforeSave: false },
+  );
+  
+  console.log(`worker failed build on id ${job.id} with error ${err}`);
+});
+```
+
+## Worker Event Logging
+
+### Build Worker Events
+
+```javascript
+// From buildworker.js:259-284
+buildWorker.on("active", async (job) => {
+  console.log(`worker start build working on id ${job.id}`);
+});
+
+buildWorker.on("completed", async (job) => {
+  await deploymentQueue.add("deploymentQueue", job.data);
+});
+
+buildWorker.on("failed", async (job, err) => {
+  console.log(`worker failed build on id ${job.id} with error ${err}`);
+});
+```
+
+### Deployment Worker Events
+
+```javascript
+// From deployworker.js:98-154
+worker.on("completed", async (job) => {
+  const { projectId } = job.data;
+  const projectData = await Model.Project.findById(projectId);
+  projectData.status = 'live';
+  await projectData.save({ validateBeforeSave: false });
+  
+  console.log(`Deployment job ${job.id} completed successfully.`);
+});
+
+worker.on("failed", async (job, err) => {
+  const { projectId } = job.data;
+  const projectData = await Model.Project.findById(projectId);
+  projectData.status = 'failed-deploy';
+  await projectData.save({ validateBeforeSave: false });
+  
+  console.log(`Deployment job ${job.id} failed with error: ${err.message}`);
+});
+```
+
+### Redeployment Worker Events
+
+```javascript
+// From reDeploy.worker.js:444-479
+reDeployMentWorker.on("active", async (job) => {
+  console.log(`ReDeployment Worker started for project ID ${job.data}`);
+});
+
+reDeployMentWorker.on("completed", async (job) => {
+  const project = await Model.Project.findById(job.data);
+  project.status = "live";
+  await project.save({ validateBeforeSave: false });
+  
+  console.log(`ReDeployment Worker completed for project ID ${job.data}`);
+});
+
+reDeployMentWorker.on("failed", async (job, err) => {
+  const project = await Model.Project.findById(job.data);
+  project.status = "failed-deploy";
+  await project.save({ validateBeforeSave: false });
+  
+  console.error(`ReDeployment Worker failed for project ID ${job.data}:`, err);
+});
+```
+
+## Retrieving Build History
+
+### Get All Builds for Project
+
+```javascript
+// From Buildscontroller.js:4-29
+export const getProjectBuilds = async (req, res) => {
+  const project = await Model.Project.findOne({
+    _id: req.params.id,
+    owner: req.user._id,
+    status: { $ne: 'deleted' },
+  }).select('_id totalBuilds').lean();
+
+  if (!project) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Project not found' 
+    });
+  }
+
+  const builds = await Model.Build.find({ project: req.params.id })
+    .select('commitSha status startedAt finishedAt logUrl createdAt')
+    .sort({ createdAt: -1 })  // Most recent first
+    .limit(50)
+    .lean();
+
+  res.status(200).json({
+    success: true,
+    total: project.totalBuilds || builds.length,
+    builds,
+  });
+};
+```
+
+**API Endpoint:**
+```javascript
+GET /api/projects/:id/builds
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "total": 15,
+  "builds": [
+    {
+      "_id": "507f1f77bcf86cd799439022",
+      "commitSha": "a1b2c3d4e5f6",
+      "status": "success",
+      "startedAt": "2025-03-04T10:15:30.000Z",
+      "finishedAt": "2025-03-04T10:17:45.000Z",
+      "logUrl": null,
+      "createdAt": "2025-03-04T10:15:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439021",
+      "commitSha": "f6e5d4c3b2a1",
+      "status": "failed",
+      "startedAt": "2025-03-03T14:20:10.000Z",
+      "finishedAt": "2025-03-03T14:21:05.000Z",
+      "createdAt": "2025-03-03T14:20:00.000Z"
+    }
+  ]
+}
+```
+
+<Info>Build history is limited to 50 most recent builds per project for performance.</Info>
+
+### Get Single Build Details
+
+```javascript
+// From Buildscontroller.js:32-54
+export const getBuildById = async (req, res) => {
+  const project = await Model.Project.findOne({
+    _id: req.params.id,
+    owner: req.user._id,
+    status: { $ne: 'deleted' },
+  }).select('_id').lean();
+
+  if (!project) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Project not found' 
+    });
+  }
+
+  const build = await Model.Build.findOne({
+    _id: req.params.buildId,
+    project: req.params.id,
+  }).select('commitSha status startedAt finishedAt logUrl dockerImage createdAt').lean();
+
+  if (!build) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Build not found' 
+    });
+  }
+
+  res.status(200).json({ success: true, build });
+};
+```
+
+**API Endpoint:**
+```javascript
+GET /api/projects/:id/builds/:buildId
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "build": {
+    "_id": "507f1f77bcf86cd799439022",
+    "commitSha": "a1b2c3d4e5f6",
+    "status": "success",
+    "startedAt": "2025-03-04T10:15:30.000Z",
+    "finishedAt": "2025-03-04T10:17:45.000Z",
+    "dockerImage": "deployhub/507f1f77bcf86cd799439011:507f1f77bcf86cd799439022",
+    "logUrl": null,
+    "createdAt": "2025-03-04T10:15:00.000Z"
+  }
+}
+```
+
+## Build Duration Calculation
+
+Calculate build time from timestamps:
+
+```javascript
+const buildDurationMs = new Date(build.finishedAt) - new Date(build.startedAt);
+const buildDurationSeconds = Math.floor(buildDurationMs / 1000);
+const buildDurationMinutes = Math.floor(buildDurationSeconds / 60);
+
+console.log(`Build took ${buildDurationMinutes}m ${buildDurationSeconds % 60}s`);
+// Output: "Build took 2m 15s"
+```
+
+## Container Logs
+
+For Node.js applications, container logs can be retrieved:
+
+```javascript
+// From deployworker.js:82
+await container.logs({ stdout: true, stderr: true });
+```
+
+**Retrieving logs manually:**
+```javascript
+const container = docker.getContainer(containerId);
+const logs = await container.logs({
+  stdout: true,
+  stderr: true,
+  tail: 100,    // Last 100 lines
+  timestamps: true
+});
+```
+
+## Build Statistics
+
+Project model tracks total build count:
+
+```javascript
+// From project.model.js:67-70
+totalBuilds: {
+  type: Number,
+  default: 0
+}
+```
+
+Incremented on each build:
+
+```javascript
+// From createDeployment.controller.js:135
+newProject.totalBuilds += 1;
+await newProject.save({ validateBeforeSave: false });
+```
+
+## Commit SHA Tracking
+
+Each build stores the Git commit SHA:
+
+```javascript
+// From createDeployment.controller.js:116-126
+const response = await fetch(
+  `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branchname}`,
+  { headers }
+);
+
+const data = await response.json();
+commitSha = data?.object?.sha || null;
+
+const newBuild = new Model.Build({
+  project: newProject._id,
+  commitSha: commitSha,
+});
+```
+
+<Tip>Commit SHA enables intelligent redeployments - DeployHub checks if code has changed before rebuilding.</Tip>
+
+## Redeployment Intelligence
+
+Redeployment worker checks commit history:
+
+```javascript
+// From reDeploy.worker.js:70-74
+const isBuildFailed = buildData.status === "failed";
+const isNewCommit = commitSha && buildData.commitSha !== commitSha;
+
+if (isBuildFailed || isNewCommit) {
+  // Build new image
+} else {
+  // Reuse existing image
+}
+```
+
+**Rebuild triggers:**
+- Previous build failed
+- New commit detected (SHA mismatch)
+
+**Reuse existing image when:**
+- Same commit SHA
+- Previous build succeeded
+
+## Error Handling
+
+Build errors are captured and logged:
+
+```javascript
+// From buildworker.js:242-244
+catch (error) {
+  console.log("error in build worker", error);
+  throw error;
+}
+```
+
+Errors trigger the worker's `failed` event, which:
+1. Updates build status to `failed`
+2. Updates project status to `failed-deploy`
+3. Logs error details
+
+## Build Cleanup
+
+Build artifacts are cleaned up automatically:
+
+```javascript
+// From buildworker.js:245-251
+finally {
+  const buildFilePath = path.join("builds", job.data.buildId.toString());
+  if (fs.existsSync(buildFilePath)) {
+    fs.rmSync(buildFilePath, { recursive: true, force: true });
+    console.log("Cleaned up build files");
+  }
+}
+```
+
+<Info>Build directories are removed after processing to conserve disk space.</Info>
+
+## Monitoring Recommendations
+
+### Real-Time Monitoring
+
+```javascript
+// Poll build status every 5 seconds
+const pollBuild = async (projectId, buildId) => {
+  const response = await fetch(`/api/projects/${projectId}/builds/${buildId}`);
+  const { build } = await response.json();
+  
+  if (build.status === 'pending') {
+    setTimeout(() => pollBuild(projectId, buildId), 5000);
+  } else {
+    console.log('Build completed:', build.status);
+  }
+};
+```
+
+### Build Status Indicators
+
+```javascript
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'pending': return 'yellow';
+    case 'success': return 'green';
+    case 'failed': return 'red';
+    default: return 'gray';
+  }
+};
+
+const getStatusIcon = (status) => {
+  switch (status) {
+    case 'pending': return '⏳';
+    case 'success': return '✅';
+    case 'failed': return '❌';
+    default: return '❓';
+  }
+};
+```
+
+## Common Build Issues
+
+### Build Timeout
+
+Builds may timeout if they take too long:
+- Optimize dependencies (use npm ci instead of npm install)
+- Reduce build output size
+- Check for infinite loops in build scripts
+
+### Out of Memory
+
+Large builds may exceed memory limits:
+- Reduce concurrent build processes
+- Optimize webpack/vite configuration
+- Use smaller dependencies
+
+### Docker Build Errors
+
+Common Docker issues:
+- Missing Dockerfile
+- Invalid build arguments
+- File permission issues
+- Network connectivity problems
+
+### Image Push Failures
+
+Push errors usually indicate:
+- Docker Hub authentication issues
+- Network connectivity problems
+- Insufficient disk space
+- Registry rate limits
+
+## API Reference Summary
+
+### Get Project Builds
+
+```javascript
+GET /api/projects/:id/builds
+```
+
+Returns up to 50 most recent builds.
+
+### Get Build Details
+
+```javascript
+GET /api/projects/:id/builds/:buildId
+```
+
+Returns detailed information for a specific build.
+
+## Future Enhancements
+
+<Card title="Planned Features" icon="roadmap">
+  - Real-time WebSocket log streaming
+  - Build log storage and retrieval
+  - Build metrics and analytics
+  - Build performance insights
+  - Email notifications on build failure
+  - Slack/Discord integration
+</Card>
+
+<Info>Currently, logs are written to stdout/stderr. Log persistence to object storage is planned for future releases.</Info>

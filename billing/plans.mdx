@@ -1,0 +1,178 @@
+---
+title: Plans & Pricing
+description: Compare DeployHub Free and Pro plans with detailed features and pricing
+---
+
+## Available Plans
+
+DeployHub offers two plans designed to support projects from development to production scale.
+
+<CardGroup cols={2}>
+  <Card title="Free Plan" icon="gift">
+    Perfect for personal projects and testing
+    
+    **$0/month**
+  </Card>
+  
+  <Card title="Pro Plan" icon="rocket">
+    For production applications and teams
+    
+    **Starting at ₹799/month**
+  </Card>
+</CardGroup>
+
+## Plan Comparison
+
+| Feature | Free | Pro |
+|---------|------|-----|
+| **Projects** | 3 projects | 10 projects |
+| **Monthly Requests** | 2,000 requests | 100,000 requests |
+| **RAM per Project** | 512 MB | 2048 MB (2 GB) |
+| **CPU Allocation** | 0.1 vCPU | 1 vCPU |
+| **Custom Domains** | ❌ Not available | ✅ Included |
+| **Team Members** | 1 member | Unlimited |
+| **Support** | Community | Priority |
+
+## Pro Plan Pricing
+
+The Pro plan is priced at **₹799 per month** (79,900 paise) with significant discounts for longer commitments:
+
+<Note>
+Pricing is calculated from `/prototype/backend/src/constants/planPrice.js:3`
+
+Base price: ₹799/month before discounts
+</Note>
+
+### Volume Discounts
+
+| Duration | Discount | Price per Month | Total Price |
+|----------|----------|-----------------|-------------|
+| 1 month | 0% | ₹799 | ₹799 |
+| 3 months | 4% | ₹767 | ₹2,301 |
+| 6 months | 8% | ₹735 | ₹4,410 |
+| 12 months | 10% | ₹719 | ₹8,628 |
+| 24 months | 15% | ₹679 | ₹16,296 |
+
+<Tip>
+Save up to **15%** by committing to 24 months. The longer your commitment, the more you save.
+</Tip>
+
+## How Discounts Work
+
+The discount calculation is applied as follows:
+
+```javascript
+const basePrice = 79900; // paise (₹799)
+const discount = discountRates[months] || 0;
+const finalAmount = months * basePrice * (1 - discount / 100);
+```
+
+**Example for 12 months:**
+- Base: ₹799 × 12 = ₹9,588
+- Discount: 10% off = ₹959 savings
+- **Final: ₹8,628**
+
+## Choosing the Right Plan
+
+<AccordionGroup>
+  <Accordion title="When to use Free Plan">
+    The Free plan is ideal for:
+    - Learning and experimenting with DeployHub
+    - Side projects with low traffic
+    - Portfolio websites
+    - Proof-of-concept applications
+    - Testing before production deployment
+  </Accordion>
+  
+  <Accordion title="When to upgrade to Pro">
+    Upgrade to Pro when you need:
+    - **More than 3 projects** to deploy simultaneously
+    - **Higher traffic handling** beyond 2,000 requests/month
+    - **Better performance** with 2GB RAM and full vCPU
+    - **Custom domains** for your brand
+    - **Production-ready resources** for real applications
+  </Accordion>
+</AccordionGroup>
+
+## Plan Limits Enforcement
+
+Limits are enforced at the system level from `/prototype/backend/src/constants/planLimits.js`:
+
+```javascript
+export const PLAN_LIMITS = {
+  free: {
+    projects: 3,
+    requests: 2000,
+    ram: 512,
+    cpu: 0.1,
+    customDomain: false,
+    teamMembers: 1,
+  },
+  pro: {
+    projects: 10,
+    requests: 100000,
+    ram: 2048,
+    cpu: 1,
+    customDomain: true,
+  }
+}
+```
+
+<Warning>
+When you exceed your plan limits, deployments may be throttled or blocked. Monitor your usage regularly to avoid service interruptions.
+</Warning>
+
+## Subscription Duration
+
+In production environments:
+- Subscriptions last for the exact number of months purchased
+- Duration calculated as: `months × 30 days`
+- Auto-expiry notifications sent 5 days before subscription ends
+
+```javascript
+// From verify.controller.js:55-56
+const subscriptionEnd = new Date(now.getTime() + months * 30 * 24 * 60 * 60 * 1000);
+const notifyDate = new Date(now.getTime() + months * 25 * 24 * 60 * 60 * 1000);
+```
+
+## Upgrading Your Plan
+
+To upgrade from Free to Pro:
+
+<Steps>
+  <Step title="Go to Billing">
+    Navigate to your account billing section
+  </Step>
+  
+  <Step title="Select Pro Plan">
+    Choose the Pro plan and your preferred duration
+  </Step>
+  
+  <Step title="Complete Payment">
+    Pay securely through Razorpay
+  </Step>
+  
+  <Step title="Instant Activation">
+    Your Pro features are activated immediately after payment verification
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Usage Limits" icon="chart-line" href="/billing/usage-limits">
+    Understand request quotas and resource limits
+  </Card>
+  
+  <Card title="Payment Methods" icon="credit-card" href="/billing/payment-methods">
+    Set up Razorpay payments
+  </Card>
+  
+  <Card title="Invoices" icon="file-invoice" href="/billing/invoices">
+    View your billing history
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/subscriptions/init">
+    Integrate billing into your app
+  </Card>
+</CardGroup>

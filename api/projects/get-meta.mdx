@@ -1,0 +1,89 @@
+---
+title: "Get Project Meta"
+api: "GET /api/projects/:id/meta"
+description: "Retrieve basic metadata for a project including name and plan"
+---
+
+## Authentication
+
+This endpoint requires JWT authentication via the `verifyJWT` middleware. Include your access token in the Authorization header.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project (MongoDB ObjectId)
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  Indicates whether the request was successful
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  The name of the project
+</ResponseField>
+
+<ResponseField name="plan" type="string" required>
+  The subscription plan for the project
+  
+  <Expandable title="Possible values">
+    - `free` - Free tier plan
+    - `pro` - Professional tier plan
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/meta" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+## Example Response
+
+```json
+{
+  "success": true,
+  "name": "my-awesome-app",
+  "plan": "pro"
+}
+```
+
+## Error Responses
+
+<ResponseField name="404 Not Found">
+  Returned when:
+  - Project with the specified ID doesn't exist
+  - Project doesn't belong to the authenticated user
+  - Project has been deleted (status is 'deleted')
+  
+  ```json
+  {
+    "success": false,
+    "message": "Project not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500 Internal Server Error">
+  Returned when a server error occurs during processing
+  
+  ```json
+  {
+    "success": false,
+    "message": "Failed to fetch project meta"
+  }
+  ```
+</ResponseField>
+
+## Implementation Notes
+
+- Only returns projects owned by the authenticated user (verified via `req.user._id`)
+- Excludes projects with status `deleted`
+- Uses `.lean()` for optimized read-only query performance
+- Only selects `name` and `plan` fields to minimize data transfer
+
+## Source Reference
+
+`backend/src/controllers/slices/Project/getProjectMeta.js:4`

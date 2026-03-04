@@ -1,0 +1,148 @@
+---
+title: 'Login'
+description: 'Email and password authentication'
+---
+
+## POST /api/login
+
+Authenticates a user with email and password credentials. Returns an access token and sets secure HTTP-only cookies for both access and refresh tokens.
+
+### Request Body
+
+<ParamField body="email" type="string" required>
+  User's email address (will be normalized)
+  
+  **Validation:** Must be a valid email format
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string">
+  Success message
+</ResponseField>
+
+<ResponseField name="accessToken" type="string">
+  JWT access token for API authentication
+</ResponseField>
+
+### Cookies Set
+
+The endpoint sets two HTTP-only cookies:
+
+<ResponseField name="refreshToken" type="cookie">
+  **Expiry:** 8-9 days
+  
+  **Development:**
+  - httpOnly: true
+  - secure: false
+  - sameSite: Lax
+  - expires: 9 days
+  
+  **Production:**
+  - httpOnly: true
+  - secure: true
+  - sameSite: Strict
+  - domain: .deployhub.cloud
+  - expires: 8 days
+</ResponseField>
+
+<ResponseField name="AccessToken" type="cookie">
+  **Expiry:** 6-10 hours
+  
+  **Development:**
+  - httpOnly: true
+  - secure: false
+  - sameSite: Lax
+  - expires: 10 hours
+  
+  **Production:**
+  - httpOnly: true
+  - secure: true
+  - sameSite: Strict
+  - domain: .deployhub.cloud
+  - expires: 6 hours
+</ResponseField>
+
+### Status Codes
+
+- `200` - Login successful
+- `400` - Validation error, account doesn't exist, or invalid password
+- `500` - Internal server error
+
+### Example Request
+
+```bash
+curl -X POST https://api.deployhub.cloud/api/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "SecurePass123!"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "message": "Login Success",
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### Error Responses
+
+<CodeGroup>
+```json 400 - Invalid Email Format
+{
+  "error": "Invalid email Formet"
+}
+```
+
+```json 400 - Account Not Found
+{
+  "message": "Account not Exist with this Email"
+}
+```
+
+```json 400 - Invalid Password
+{
+  "message": "Invalid Password"
+}
+```
+
+```json 500 - Server Error
+{
+  "error": "Internal server Error"
+}
+```
+</CodeGroup>
+
+### Token Details
+
+**Access Token JWT Payload:**
+```json
+{
+  "_id": "user_id",
+  "verified": true,
+  "exp": 1234567890
+}
+```
+
+**Refresh Token JWT Payload:**
+```json
+{
+  "_id": "user_id",
+  "exp": 1234567890
+}
+```
+
+### Notes
+
+- Passwords are compared using bcrypt hashing
+- The refresh token is stored in the database for validation
+- Access tokens should be included in the `Authorization` header for authenticated requests
+- Email addresses are normalized before lookup (lowercase, trimmed)

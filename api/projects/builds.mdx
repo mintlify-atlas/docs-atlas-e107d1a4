@@ -1,0 +1,260 @@
+---
+title: "Project Builds"
+api: "GET /api/projects/:id/builds"
+description: "Retrieve build history and individual build details for a project"
+---
+
+## List Project Builds
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project (MongoDB ObjectId)
+</ParamField>
+
+### Authentication
+
+Requires JWT authentication via the `verifyJWT` middleware.
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  Indicates whether the request was successful
+</ResponseField>
+
+<ResponseField name="total" type="number" required>
+  Total number of builds for this project. Returns `totalBuilds` from project document if available, otherwise returns the count of builds in the response.
+</ResponseField>
+
+<ResponseField name="builds" type="array" required>
+  Array of build objects, sorted by creation date (newest first), limited to 50 most recent builds
+  
+  <Expandable title="Build object fields">
+    <ResponseField name="_id" type="string">
+      Build unique identifier (MongoDB ObjectId)
+    </ResponseField>
+    
+    <ResponseField name="commitSha" type="string | undefined">
+      Git commit SHA that triggered this build
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current build status
+      - `pending` - Build is queued and waiting to start
+      - `success` - Build completed successfully
+      - `failed` - Build failed
+    </ResponseField>
+    
+    <ResponseField name="startedAt" type="string | undefined">
+      ISO 8601 timestamp when the build started
+    </ResponseField>
+    
+    <ResponseField name="finishedAt" type="string | undefined">
+      ISO 8601 timestamp when the build finished
+    </ResponseField>
+    
+    <ResponseField name="logUrl" type="string | undefined">
+      URL to the build logs
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp when the build was created
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/builds" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "total": 23,
+  "builds": [
+    {
+      "_id": "65f5d3e4f5g6h7i8j9k0l1m2",
+      "commitSha": "a3f7d9e2c1b4f6e8d0c2a5b7",
+      "status": "success",
+      "startedAt": "2024-03-20T14:20:15.000Z",
+      "finishedAt": "2024-03-20T14:22:03.000Z",
+      "logUrl": "https://logs.deployhub.online/builds/65f5d3e4f5g6h7i8j9k0l1m2.log",
+      "createdAt": "2024-03-20T14:20:10.000Z"
+    },
+    {
+      "_id": "65f5c2d3e4f5g6h7i8j9k0l1",
+      "commitSha": "b2e8f1a3d5c7e9f0a2b4c6d8",
+      "status": "failed",
+      "startedAt": "2024-03-19T09:15:30.000Z",
+      "finishedAt": "2024-03-19T09:16:45.000Z",
+      "logUrl": "https://logs.deployhub.online/builds/65f5c2d3e4f5g6h7i8j9k0l1.log",
+      "createdAt": "2024-03-19T09:15:25.000Z"
+    },
+    {
+      "_id": "65f5b1c2d3e4f5g6h7i8j9k0",
+      "commitSha": "c3f9e2a4d6c8e0f1a3b5c7d9",
+      "status": "pending",
+      "createdAt": "2024-03-18T16:45:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## Get Build by ID
+
+<api>GET /api/projects/:id/builds/:buildId</api>
+
+Retrieve detailed information about a specific build.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the project (MongoDB ObjectId)
+</ParamField>
+
+<ParamField path="buildId" type="string" required>
+  The unique identifier of the build (MongoDB ObjectId)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  Indicates whether the request was successful
+</ResponseField>
+
+<ResponseField name="build" type="object" required>
+  Detailed build information
+  
+  <Expandable title="Build fields">
+    <ResponseField name="_id" type="string">
+      Build unique identifier
+    </ResponseField>
+    
+    <ResponseField name="commitSha" type="string | undefined">
+      Git commit SHA that triggered this build
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Build status: `pending`, `success`, or `failed`
+    </ResponseField>
+    
+    <ResponseField name="startedAt" type="string | undefined">
+      ISO 8601 timestamp when the build started
+    </ResponseField>
+    
+    <ResponseField name="finishedAt" type="string | undefined">
+      ISO 8601 timestamp when the build finished
+    </ResponseField>
+    
+    <ResponseField name="logUrl" type="string | undefined">
+      URL to the complete build logs
+    </ResponseField>
+    
+    <ResponseField name="dockerImage" type="string | undefined">
+      Docker image identifier created by this build
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp when the build was created
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET "https://api.deployhub.online/api/projects/65f3a2b1c4d5e6f7g8h9i0j1/builds/65f5d3e4f5g6h7i8j9k0l1m2" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "build": {
+    "_id": "65f5d3e4f5g6h7i8j9k0l1m2",
+    "commitSha": "a3f7d9e2c1b4f6e8d0c2a5b7",
+    "status": "success",
+    "startedAt": "2024-03-20T14:20:15.000Z",
+    "finishedAt": "2024-03-20T14:22:03.000Z",
+    "logUrl": "https://logs.deployhub.online/builds/65f5d3e4f5g6h7i8j9k0l1m2.log",
+    "dockerImage": "deployhub/65f3a2b1c4d5e6f7g8h9i0j1:a3f7d9e",
+    "createdAt": "2024-03-20T14:20:10.000Z"
+  }
+}
+```
+
+---
+
+## Error Responses
+
+<ResponseField name="404 Not Found - Project">
+  Returned when the project doesn't exist, doesn't belong to the user, or has been deleted
+  
+  ```json
+  {
+    "success": false,
+    "message": "Project not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="404 Not Found - Build">
+  Returned when the build doesn't exist or doesn't belong to the specified project
+  
+  ```json
+  {
+    "success": false,
+    "message": "Build not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500 Internal Server Error">
+  Returned when a server error occurs
+  
+  ```json
+  {
+    "success": false,
+    "message": "Server error"
+  }
+  ```
+</ResponseField>
+
+## Implementation Notes
+
+### List Builds
+- Returns up to 50 most recent builds
+- Builds are sorted by `createdAt` in descending order (newest first)
+- Only selects relevant fields to minimize response size
+- Verifies project ownership before returning builds
+- Uses `.lean()` for optimized read-only queries
+
+### Get Build by ID
+- Verifies that the build belongs to the specified project
+- Verifies project ownership through the project lookup
+- Includes `dockerImage` field which is not returned in the list endpoint
+- Returns additional build metadata for debugging and analysis
+
+### Build Status Flow
+1. **pending** - Build is created and queued
+2. **success** or **failed** - Build completes with final status
+3. `startedAt` is set when build processing begins
+4. `finishedAt` is set when build completes (success or failure)
+
+### Related Endpoints
+- To trigger a new build, use the redeploy endpoint: `POST /api/redeploy/:projectId`
+- Build logs can be accessed via the `logUrl` field
+- The most recent build is also included in the project overview endpoint
+
+## Source Reference
+
+- List builds: `backend/src/controllers/slices/Project/Buildscontroller.js:4`
+- Get build by ID: `backend/src/controllers/slices/Project/Buildscontroller.js:32`
+- Build model: `backend/src/models/slices/build.model.js:3`

@@ -1,80 +1,581 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart Guide'
+description: 'Deploy your first project on DeployHub in under 5 minutes'
+icon: 'rocket'
 ---
 
-## Get started in three steps
+<Note>
+This guide takes you from signup to your first live deployment in under 5 minutes.
+</Note>
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, make sure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+- A Git repository (GitHub or any public Git URL)
+- For GitHub users: A GitHub account for OAuth authentication
+- For Node.js apps: Your application should listen on a configurable port via environment variables
 
-### Step 2: Deploy your changes
+## Step 1: Create Your Account
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+DeployHub offers two signup methods:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Steps>
+  <Step title="Sign up with GitHub (Recommended)">
+    Navigate to the signup page and click "Continue with GitHub".
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    # OAuth flow redirects to:
+    GET https://api.deployhub.cloud/api/auth/github
+    ```
 
-### Step 3: Go live
+    This will:
+    - Authenticate you via GitHub OAuth
+    - Automatically access your repositories
+    - Generate access and refresh tokens
+    - Redirect you to the dashboard
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    <Note>
+    GitHub authentication stores your `githubAccessToken` for repository access and automatic deployments.
+    </Note>
+  </Step>
 
-## Next steps
+  <Step title="Sign up with Email">
+    Alternatively, create an account with email:
 
-Now that you have your docs running, explore these key features:
+    **Step 1: Initialize Registration**
 
-<CardGroup cols={2}>
+    ```bash
+    curl -X POST https://api.deployhub.cloud/api/register/init \
+      -H "Content-Type: application/json" \
+      -d '{
+        "fullname": "John Doe",
+        "email": "john@example.com",
+        "password": "SecurePass123!@"
+      }'
+    ```
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    **Response:**
+    ```json
+    {
+      "message": "Otp Sent Success"
+    }
+    ```
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+    <Warning>
+    Password must be at least 8 characters and include:
+    - Uppercase letter
+    - Lowercase letter
+    - Number
+    - Special character (@$!%*?&)
+    </Warning>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+    **Step 2: Verify with OTP**
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    Check your email for a 6-digit OTP code (expires in 10 minutes).
 
-</CardGroup>
+    ```bash
+    curl -X POST https://api.deployhub.cloud/api/register/verify \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "john@example.com",
+        "otp": "123456"
+      }'
+    ```
+
+    **Response:**
+    ```json
+    {
+      "message": "User register Success"
+    }
+    ```
+  </Step>
+</Steps>
+
+## Step 2: Login and Get Access Token
+
+After signup, authenticate to receive your access token.
+
+<CodeGroup>
+```bash Email Login
+curl -X POST https://api.deployhub.cloud/api/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "SecurePass123!@"
+  }'
+```
+
+```bash GitHub Login
+# Redirect user to:
+https://api.deployhub.cloud/api/auth/github
+
+# After OAuth callback, tokens are set as cookies
+```
+</CodeGroup>
+
+**Response:**
+```json
+{
+  "message": "Login Success",
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+The API returns both `AccessToken` and `refreshToken` as HTTP-only cookies. The `accessToken` is also returned in the response body for manual storage.
 </Note>
+
+## Step 3: Get Your Repositories (GitHub Users)
+
+If you signed up with GitHub, fetch your accessible repositories:
+
+```bash
+curl -X GET https://api.deployhub.cloud/api/user/gitrepos \
+  -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN"
+```
+
+**Response:**
+```json
+{
+  "repos": [
+    {
+      "id": 123456789,
+      "name": "my-portfolio",
+      "full_name": "johndoe/my-portfolio",
+      "private": false,
+      "html_url": "https://github.com/johndoe/my-portfolio",
+      "description": "My personal portfolio site",
+      "default_branch": "main"
+    }
+  ]
+}
+```
+
+<Accordion title="Non-GitHub users">
+If you signed up with email, you can use any public Git repository URL directly in the deployment step.
+</Accordion>
+
+## Step 4: Choose Your Plan
+
+DeployHub offers two plans:
+
+<CardGroup cols={2}>
+  <Card title="Free Plan" icon="gift">
+    - 512MB RAM
+    - 0.1 vCPU
+    - 2,000 requests/day
+    - deployhub.online subdomain
+    - **₹0 forever**
+  </Card>
+  <Card title="Pro Plan" icon="star">
+    - 2GB RAM
+    - 1 vCPU
+    - 1,00,000 requests/day
+    - Custom domain support
+    - **₹799/month** (discounts available)
+  </Card>
+</CardGroup>
+
+### Initialize Your Plan
+
+<CodeGroup>
+```bash Free Plan
+curl -X POST https://api.deployhub.cloud/api/subscription/init \
+  -H "Content-Type: application/json" \
+  -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN" \
+  -d '{
+    "plan": "free"
+  }'
+```
+
+```bash Pro Plan (with Payment)
+curl -X POST https://api.deployhub.cloud/api/subscription/init \
+  -H "Content-Type: application/json" \
+  -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN" \
+  -d '{
+    "plan": "pro",
+    "months": 12
+  }'
+```
+</CodeGroup>
+
+**Free Plan Response:**
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "60f7b3b3e4b0a4001f3e4e3a",
+    "owner": "60f7b3b3e4b0a4001f3e4e3b",
+    "status": "pending"
+  }
+}
+```
+
+**Pro Plan Response:**
+```json
+{
+  "id": "order_MNxUqz...",
+  "amount": 85896,
+  "currency": "INR",
+  "receipt": "order_rcptid_0.123456789"
+}
+```
+
+<Accordion title="Pro Plan Discounts">
+| Duration | Discount | Effective Price/Month |
+|----------|----------|-----------------------|
+| 1 month  | 0%       | ₹799                  |
+| 3 months | 4%       | ₹767                  |
+| 6 months | 8%       | ₹735                  |
+| 12 months| 10%      | ₹719                  |
+| 24 months| 15%      | ₹679                  |
+
+Prices are in INR. Payment processed via Razorpay.
+</Accordion>
+
+<Warning>
+For Pro plan, you must complete the Razorpay payment flow and verify the payment before proceeding to deployment.
+
+```bash
+curl -X POST https://api.deployhub.cloud/api/subscription/verify \
+  -H "Content-Type: application/json" \
+  -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN" \
+  -d '{
+    "razorpay_payment_id": "pay_...",
+    "razorpay_order_id": "order_...",
+    "razorpay_signature": "..."
+  }'
+```
+</Warning>
+
+## Step 5: Deploy Your Project
+
+Now you're ready to deploy! DeployHub supports static sites and Node.js applications.
+
+<Tabs>
+  <Tab title="Static Site (React, Vue, etc.)">
+    Deploy a static site like React, Vue, or any framework that builds to HTML/CSS/JS:
+
+    ```bash
+    curl -X POST https://api.deployhub.cloud/api/deployment \
+      -H "Content-Type: application/json" \
+      -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN" \
+      -d '{
+        "projectId": "60f7b3b3e4b0a4001f3e4e3a",
+        "name": "my-portfolio",
+        "codeLink": "https://github.com/johndoe/my-portfolio",
+        "projectType": "static",
+        "branchname": "main",
+        "isFolder": false,
+        "buildCommand": "npm run build",
+        "publishDir": "dist",
+        "env": {
+          "VITE_API_URL": "https://api.example.com",
+          "NODE_ENV": "production"
+        }
+      }'
+    ```
+
+    **Required Fields:**
+    - `projectId`: From Step 4 (plan initialization)
+    - `name`: Display name for your project
+    - `codeLink`: GitHub repository URL or public Git URL
+    - `projectType`: `"static"` for static sites
+    - `branchname`: Git branch to deploy (e.g., "main", "master")
+    - `isFolder`: `false` if project is at repo root, `true` if in a subfolder
+    - `buildCommand`: Command to build your site (e.g., "npm run build", "yarn build")
+    - `publishDir`: Directory containing built files (e.g., "dist", "build", "public")
+
+    **Optional Fields:**
+    - `env`: Environment variables as key-value pairs
+    - `folderName`: Required if `isFolder: true` (e.g., "packages/frontend")
+  </Tab>
+
+  <Tab title="Node.js Application">
+    Deploy a Node.js backend or full-stack application:
+
+    ```bash
+    curl -X POST https://api.deployhub.cloud/api/deployment \
+      -H "Content-Type: application/json" \
+      -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN" \
+      -d '{
+        "projectId": "60f7b3b3e4b0a4001f3e4e3a",
+        "name": "express-api",
+        "codeLink": "https://github.com/johndoe/express-api",
+        "projectType": "node",
+        "branchname": "main",
+        "isFolder": false,
+        "startCommand": "node index.js",
+        "port": 3000,
+        "env": {
+          "DATABASE_URL": "mongodb://...",
+          "JWT_SECRET": "your-secret-key",
+          "NODE_ENV": "production"
+        }
+      }'
+    ```
+
+    **Required Fields:**
+    - `projectId`: From Step 4 (plan initialization)
+    - `name`: Display name for your project
+    - `codeLink`: GitHub repository URL or public Git URL
+    - `projectType`: `"node"` for Node.js applications
+    - `branchname`: Git branch to deploy
+    - `isFolder`: `false` if project is at repo root
+    - `startCommand`: Command to start your app (e.g., "node server.js", "npm start")
+    - `port`: Port your application listens on (1-65535)
+
+    **Optional Fields:**
+    - `env`: Environment variables (highly recommended for Node.js apps)
+    - `folderName`: Required if `isFolder: true`
+
+    <Warning>
+    Your Node.js application must listen on the port specified in the `port` field. Make sure your app reads the port from the environment:
+
+    ```javascript
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    ```
+    </Warning>
+  </Tab>
+
+  <Tab title="Monorepo / Subfolder">
+    If your project is in a subfolder (e.g., monorepo):
+
+    ```bash
+    curl -X POST https://api.deployhub.cloud/api/deployment \
+      -H "Content-Type: application/json" \
+      -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN" \
+      -d '{
+        "projectId": "60f7b3b3e4b0a4001f3e4e3a",
+        "name": "frontend-app",
+        "codeLink": "https://github.com/johndoe/monorepo",
+        "projectType": "static",
+        "branchname": "main",
+        "isFolder": true,
+        "folderName": "packages/frontend",
+        "buildCommand": "npm run build",
+        "publishDir": "dist"
+      }'
+    ```
+
+    The build process will:
+    1. Clone the repository
+    2. Navigate to `packages/frontend`
+    3. Install dependencies
+    4. Run the build command
+    5. Deploy the contents of `publishDir`
+  </Tab>
+</Tabs>
+
+**Deployment Response:**
+```json
+{
+  "success": true,
+  "buildId": "60f7b3b3e4b0a4001f3e4e3c",
+  "status": "queued",
+  "newProject": {
+    "_id": "60f7b3b3e4b0a4001f3e4e3a",
+    "name": "my-portfolio",
+    "subdomain": "my-portfolio-x8k2j4",
+    "status": "building",
+    "projectType": "static",
+    "repoLink": "https://github.com/johndoe/my-portfolio"
+  }
+}
+```
+
+<Note>
+Your deployment is now queued! The build process typically takes 1-3 minutes depending on your project size.
+</Note>
+
+## Step 6: Access Your Deployment
+
+Once the build completes, your project will be live at:
+
+```
+https://[subdomain].deployhub.online
+```
+
+For example: `https://my-portfolio-x8k2j4.deployhub.online`
+
+### Check Build Status
+
+Monitor your deployment progress:
+
+```bash
+curl -X GET https://api.deployhub.cloud/api/projects/60f7b3b3e4b0a4001f3e4e3a/builds \
+  -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN"
+```
+
+**Response:**
+```json
+{
+  "builds": [
+    {
+      "_id": "60f7b3b3e4b0a4001f3e4e3c",
+      "project": "60f7b3b3e4b0a4001f3e4e3a",
+      "status": "success",
+      "commitSha": "a1b2c3d4e5f6...",
+      "createdAt": "2024-01-15T10:30:00.000Z",
+      "completedAt": "2024-01-15T10:32:15.000Z"
+    }
+  ]
+}
+```
+
+**Build Statuses:**
+- `queued`: Build is waiting to start
+- `building`: Build is in progress
+- `success`: Build completed successfully, site is live
+- `failed`: Build failed (check logs for errors)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Settings" icon="gear" href="/projects/settings">
+    Update build commands, environment variables, and project settings
+  </Card>
+  <Card title="Custom Domains" icon="globe" href="/projects/domains">
+    Add your custom domain to your Pro plan project
+  </Card>
+  <Card title="View Build History" icon="clock" href="/projects/builds">
+    Monitor build history, logs, and deployment status
+  </Card>
+  <Card title="Redeploy" icon="rotate" href="/api/deployments/redeploy">
+    Trigger manual redeployments or set up webhooks
+  </Card>
+</CardGroup>
+
+## Common Deployment Examples
+
+<AccordionGroup>
+  <Accordion title="React with Vite">
+    ```json
+    {
+      "projectType": "static",
+      "buildCommand": "npm install && npm run build",
+      "publishDir": "dist",
+      "env": {
+        "VITE_API_URL": "https://api.example.com"
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Next.js Static Export">
+    ```json
+    {
+      "projectType": "static",
+      "buildCommand": "npm install && npm run build",
+      "publishDir": "out"
+    }
+    ```
+
+    Make sure your `next.config.js` includes:
+    ```javascript
+    module.exports = {
+      output: 'export'
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Vue.js">
+    ```json
+    {
+      "projectType": "static",
+      "buildCommand": "npm install && npm run build",
+      "publishDir": "dist"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Express.js API">
+    ```json
+    {
+      "projectType": "node",
+      "startCommand": "node server.js",
+      "port": 3000,
+      "env": {
+        "DATABASE_URL": "mongodb+srv://...",
+        "JWT_SECRET": "your-secret",
+        "NODE_ENV": "production"
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Nest.js Application">
+    ```json
+    {
+      "projectType": "node",
+      "startCommand": "npm run start:prod",
+      "port": 3000,
+      "env": {
+        "DATABASE_HOST": "db.example.com",
+        "PORT": "3000"
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Build Failed">
+    **Common causes:**
+    - Incorrect `buildCommand` or `publishDir`
+    - Missing dependencies in `package.json`
+    - Build script errors
+
+    **Solution:** Check build logs via:
+    ```bash
+    curl -X GET https://api.deployhub.cloud/api/projects/{projectId}/builds/{buildId} \
+      -H "Cookie: AccessToken=YOUR_ACCESS_TOKEN"
+    ```
+  </Accordion>
+
+  <Accordion title="Node.js App Not Starting">
+    **Common causes:**
+    - App not listening on the correct port
+    - Missing environment variables
+    - Incorrect `startCommand`
+
+    **Solution:** Ensure your app uses the port you specified:
+    ```javascript
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT);
+    ```
+  </Accordion>
+
+  <Accordion title="401 Unauthorized">
+    Your access token may have expired. Refresh it:
+
+    ```bash
+    curl -X GET https://api.deployhub.cloud/api/refresh/refreshtoken \
+      -H "Cookie: refreshToken=YOUR_REFRESH_TOKEN"
+    ```
+  </Accordion>
+
+  <Accordion title="Repository Not Found (Private Repos)">
+    If using a private repository:
+    - You must authenticate via GitHub OAuth
+    - DeployHub uses your stored `githubAccessToken` to access private repos
+    - Public Git URLs only work for public repositories
+  </Accordion>
+</AccordionGroup>
+
+## API Reference
+
+For complete API documentation, see:
+
+- [Authentication](/api/auth/register)
+- [Deployments](/api/deployments/create)
+- [Projects](/api/projects/overview)
+- [Billing](/api/subscriptions/init)
+
+<Check>
+**Congratulations!** You've successfully deployed your first project on DeployHub. Your site is now live and accessible to the world.
+</Check>

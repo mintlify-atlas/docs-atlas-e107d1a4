@@ -1,0 +1,393 @@
+---
+title: 'List User Projects'
+api: 'GET /api/projects'
+---
+
+Retrieves all projects owned by the authenticated user. Returns a formatted list of projects with deployment information, excluding deleted projects.
+
+## Authentication
+
+Requires JWT authentication via `verifyJWT` middleware.
+
+## Query Parameters
+
+No query parameters. Returns all non-deleted projects for the authenticated user.
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the request was successful.
+</ResponseField>
+
+<ResponseField name="projects" type="array">
+  Array of project objects sorted by creation date (newest first).
+  
+  <Expandable title="Project Object Fields">
+    <ResponseField name="_id" type="string">
+      MongoDB ObjectId of the project.
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Display name of the project.
+    </ResponseField>
+    
+    <ResponseField name="projectType" type="string">
+      Type of project. Values: `static` or `node`.
+    </ResponseField>
+    
+    <ResponseField name="repoLink" type="string">
+      GitHub repository URL.
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current deployment status. Possible values:
+      - `pending` - Initial state, not yet deployed
+      - `building` - Currently building
+      - `live` - Successfully deployed and running
+      - `stopped` - Deployment stopped
+      - `failed-deploy` - Deployment failed
+      
+      Note: `deleted` projects are excluded from results.
+    </ResponseField>
+    
+    <ResponseField name="totalRequest" type="number">
+      Total number of requests served by this project.
+    </ResponseField>
+    
+    <ResponseField name="totalBuilds" type="number">
+      Total number of builds/deployments for this project.
+    </ResponseField>
+    
+    <ResponseField name="plan" type="string">
+      Subscription plan for this project. Values: `free` or `pro`.
+    </ResponseField>
+    
+    <ResponseField name="domain" type="string">
+      Project's accessible domain. Returns custom domain if configured, otherwise returns DeployHub subdomain in format: `{subdomain}.deployhub.online`.
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp of when the project was created.
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string">
+      ISO 8601 timestamp of when the project was last updated.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Filtering
+
+The endpoint automatically filters:
+- Projects owned by the authenticated user (via `req.user._id`)
+- Projects with status not equal to `deleted`
+
+## Sorting
+
+Projects are sorted by `createdAt` in descending order (newest first).
+
+## Selected Fields
+
+For performance, only the following fields are returned:
+- `name`
+- `projectType`
+- `repoLink`
+- `status`
+- `totalRequest`
+- `plan`
+- `hascustomDomain`
+- `customDomain`
+- `totalBuilds`
+- `subdomain`
+- `createdAt`
+- `updatedAt`
+
+Other fields like `env`, `buildCommand`, `startCommand`, etc. are excluded. Use the project details endpoint for complete information.
+
+## Error Responses
+
+<ResponseField name="success" type="boolean">
+  Always `false` for errors.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+### Common Errors
+
+- **401 Unauthorized**: Missing or invalid JWT token
+- **500 Internal Server Error**: `"Failed to fetch projects"` - Database or server error
+
+## Request Examples
+
+### cURL
+
+```bash
+curl -X GET https://api.deployhub.com/api/projects \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### JavaScript (Axios)
+
+```javascript
+import axios from 'axios';
+
+const getUserProjects = async () => {
+  try {
+    const response = await axios.get(
+      'https://api.deployhub.com/api/projects',
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      }
+    );
+    
+    const { success, projects } = response.data;
+    console.log(`Found ${projects.length} projects`);
+    
+    projects.forEach(project => {
+      console.log(`${project.name}: ${project.status} - ${project.domain}`);
+    });
+    
+    return projects;
+  } catch (error) {
+    console.error('Failed to fetch projects:', error.response.data);
+  }
+};
+```
+
+### JavaScript (Fetch API)
+
+```javascript
+const getUserProjects = async () => {
+  const response = await fetch(
+    'https://api.deployhub.com/api/projects',
+    {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    }
+  );
+  
+  const data = await response.json();
+  
+  if (!data.success) {
+    throw new Error(data.message);
+  }
+  
+  return data.projects;
+};
+```
+
+### TypeScript
+
+```typescript
+interface Project {
+  _id: string;
+  name: string;
+  projectType: 'static' | 'node';
+  repoLink: string;
+  status: 'pending' | 'building' | 'live' | 'stopped' | 'failed-deploy';
+  totalRequest: number;
+  totalBuilds: number;
+  plan: 'free' | 'pro';
+  domain: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ProjectsResponse {
+  success: boolean;
+  projects: Project[];
+}
+
+const getUserProjects = async (): Promise<Project[]> => {
+  const response = await fetch('https://api.deployhub.com/api/projects', {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  const data: ProjectsResponse = await response.json();
+  
+  if (!data.success) {
+    throw new Error('Failed to fetch projects');
+  }
+  
+  return data.projects;
+};
+```
+
+## Response Example
+
+### Successful Response
+
+```json
+{
+  "success": true,
+  "projects": [
+    {
+      "_id": "507f1f77bcf86cd799439011",
+      "name": "my-react-app",
+      "projectType": "static",
+      "repoLink": "https://github.com/username/react-app.git",
+      "status": "live",
+      "totalRequest": 15234,
+      "totalBuilds": 12,
+      "plan": "free",
+      "domain": "my-react-app-a3f9k2.deployhub.online",
+      "createdAt": "2024-01-15T10:30:00.000Z",
+      "updatedAt": "2024-01-20T14:22:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439012",
+      "name": "express-api",
+      "projectType": "node",
+      "repoLink": "https://github.com/username/express-server",
+      "status": "live",
+      "totalRequest": 8921,
+      "totalBuilds": 8,
+      "plan": "pro",
+      "domain": "api.example.com",
+      "createdAt": "2024-01-10T08:15:00.000Z",
+      "updatedAt": "2024-01-19T11:45:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439013",
+      "name": "landing-page",
+      "projectType": "static",
+      "repoLink": "https://github.com/username/landing-page",
+      "status": "building",
+      "totalRequest": 0,
+      "totalBuilds": 1,
+      "plan": "free",
+      "domain": "landing-page-x9k2m1.deployhub.online",
+      "createdAt": "2024-01-22T16:00:00.000Z",
+      "updatedAt": "2024-01-22T16:00:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439014",
+      "name": "blog",
+      "projectType": "static",
+      "repoLink": "https://github.com/username/blog",
+      "status": "failed-deploy",
+      "totalRequest": 2341,
+      "totalBuilds": 5,
+      "plan": "free",
+      "domain": "blog-p4j8n3.deployhub.online",
+      "createdAt": "2024-01-05T12:00:00.000Z",
+      "updatedAt": "2024-01-18T09:30:00.000Z"
+    }
+  ]
+}
+```
+
+### Empty Projects List
+
+```json
+{
+  "success": true,
+  "projects": []
+}
+```
+
+### Error Response
+
+```json
+{
+  "success": false,
+  "message": "Failed to fetch projects"
+}
+```
+
+## Use Cases
+
+### Dashboard Display
+
+Display all user projects on a dashboard:
+```javascript
+const ProjectsDashboard = () => {
+  const [projects, setProjects] = useState([]);
+  
+  useEffect(() => {
+    getUserProjects().then(setProjects);
+  }, []);
+  
+  return (
+    <div>
+      {projects.map(project => (
+        <ProjectCard
+          key={project._id}
+          name={project.name}
+          status={project.status}
+          domain={project.domain}
+          type={project.projectType}
+          builds={project.totalBuilds}
+          requests={project.totalRequest}
+        />
+      ))}
+    </div>
+  );
+};
+```
+
+### Filter by Status
+
+```javascript
+const getLiveProjects = async () => {
+  const projects = await getUserProjects();
+  return projects.filter(p => p.status === 'live');
+};
+
+const getFailedProjects = async () => {
+  const projects = await getUserProjects();
+  return projects.filter(p => p.status === 'failed-deploy');
+};
+```
+
+### Project Statistics
+
+```javascript
+const getProjectStats = async () => {
+  const projects = await getUserProjects();
+  
+  return {
+    total: projects.length,
+    live: projects.filter(p => p.status === 'live').length,
+    building: projects.filter(p => p.status === 'building').length,
+    failed: projects.filter(p => p.status === 'failed-deploy').length,
+    totalRequests: projects.reduce((sum, p) => sum + p.totalRequest, 0),
+    totalBuilds: projects.reduce((sum, p) => sum + p.totalBuilds, 0),
+    proProjects: projects.filter(p => p.plan === 'pro').length
+  };
+};
+```
+
+## Domain Resolution
+
+The `domain` field intelligently returns:
+- **Custom Domain**: If `hascustomDomain` is `true` and `customDomain` is set, returns the custom domain
+- **DeployHub Subdomain**: Otherwise, returns `{subdomain}.deployhub.online`
+
+This allows you to display the correct accessible URL without additional logic:
+```javascript
+const getProjectUrl = (project) => {
+  return `https://${project.domain}`;
+};
+```
+
+## Performance Considerations
+
+- Uses `.lean()` for faster queries (returns plain JavaScript objects)
+- Only selects necessary fields to reduce data transfer
+- Indexed on `owner` and `status` for fast filtering
+- Sorted by `createdAt` with index support
+
+## Related Endpoints
+
+- [Create Deployment](/api/deployments/create) - Deploy a new project
+- [Redeploy Project](/api/deployments/redeploy) - Redeploy existing project
+- Get Project Details - Get complete project information including build settings
+- Get Project Builds - View build history for a specific project

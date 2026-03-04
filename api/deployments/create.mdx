@@ -1,0 +1,331 @@
+---
+title: 'Create Deployment'
+api: 'POST /api/deployment'
+---
+
+Creates a new deployment for a project. This endpoint initializes the deployment process by:
+- Validating project ownership and configuration
+- Fetching the latest commit SHA from GitHub
+- Generating a unique subdomain
+- Creating a build record
+- Adding the deployment to the build queue
+
+## Authentication
+
+Requires JWT authentication via `verifyJWT` middleware.
+
+## Request Body
+
+<ParamField body="projectId" type="string" required>
+  MongoDB ObjectId of the project to deploy. Must be a valid ObjectId format.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  Display name for the project.
+</ParamField>
+
+<ParamField body="codeLink" type="string" required>
+  GitHub repository URL. Can end with `.git` or not. Format: `https://github.com/owner/repo` or `https://github.com/owner/repo.git`
+</ParamField>
+
+<ParamField body="projectType" type="string" required>
+  Type of project to deploy. Must be one of:
+  - `static` - Static site (requires `buildCommand` and `publishDir`)
+  - `node` - Node.js application (requires `startCommand` and `port`)
+</ParamField>
+
+<ParamField body="branchname" type="string" required>
+  Git branch name to deploy from (e.g., `main`, `develop`).
+</ParamField>
+
+<ParamField body="isFolder" type="boolean" required>
+  Indicates if the project is in a monorepo/subfolder. Must be a boolean value.
+</ParamField>
+
+<ParamField body="folderName" type="string">
+  Name of the subfolder containing the project. Required when `isFolder` is `true`. Must be a string.
+</ParamField>
+
+<ParamField body="env" type="object">
+  Environment variables as key-value pairs. Must be an object.
+  
+  Example:
+  ```json
+  {
+    "API_KEY": "your-api-key",
+    "NODE_ENV": "production"
+  }
+  ```
+</ParamField>
+
+### Static Project Fields
+
+<ParamField body="buildCommand" type="string">
+  Build command for static projects (e.g., `npm run build`, `yarn build`). Required when `projectType` is `static`.
+</ParamField>
+
+<ParamField body="publishDir" type="string">
+  Output directory after build (e.g., `dist`, `build`, `out`). Required when `projectType` is `static`. Sets internal port to 80.
+</ParamField>
+
+### Node.js Project Fields
+
+<ParamField body="startCommand" type="string">
+  Start command for Node.js projects (e.g., `npm start`, `node index.js`). Required when `projectType` is `node`.
+</ParamField>
+
+<ParamField body="port" type="number">
+  Port number the Node.js application listens on (e.g., `3000`, `8080`). Required when `projectType` is `node`. Used as internal port for routing.
+</ParamField>
+
+## Validation Rules
+
+The endpoint validates:
+- `projectId` must be a valid MongoDB ObjectId
+- `projectType` must be exactly `static` or `node`
+- `env` must be an object if provided
+- `isFolder` must be a boolean
+- For static projects: `buildCommand` and `publishDir` are mandatory
+- For node projects: `startCommand` and `port` are mandatory
+- When `isFolder` is `true`, `folderName` is mandatory and must be a string
+- Project must exist and be owned by authenticated user
+- Project status must be `pending` (no reconfiguration allowed)
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the deployment was initiated successfully.
+</ResponseField>
+
+<ResponseField name="buildId" type="string">
+  MongoDB ObjectId of the created build record.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Build status. Always returns `queued` on successful creation.
+</ResponseField>
+
+<ResponseField name="newProject" type="object">
+  Complete project object with updated configuration.
+  
+  <Expandable title="Project Object Fields">
+    <ResponseField name="_id" type="string">
+      Project ObjectId.
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Project name.
+    </ResponseField>
+    
+    <ResponseField name="owner" type="string">
+      User ObjectId of the project owner.
+    </ResponseField>
+    
+    <ResponseField name="projectType" type="string">
+      Project type (`static` or `node`).
+    </ResponseField>
+    
+    <ResponseField name="repoLink" type="string">
+      GitHub repository URL.
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Project status. Possible values: `pending`, `building`, `live`, `stopped`, `failed-deploy`, `deleted`.
+    </ResponseField>
+    
+    <ResponseField name="subdomain" type="string">
+      Generated unique subdomain (format: `{name}-{random}.deployhub.online`).
+    </ResponseField>
+    
+    <ResponseField name="buildId" type="string">
+      Reference to the current build ObjectId.
+    </ResponseField>
+    
+    <ResponseField name="totalBuilds" type="number">
+      Total number of builds for this project.
+    </ResponseField>
+    
+    <ResponseField name="env" type="object">
+      Environment variables as Map.
+    </ResponseField>
+    
+    <ResponseField name="settings" type="object">
+      Project settings.
+      
+      <Expandable title="Settings Fields">
+        <ResponseField name="repoBranchName" type="string">
+          Git branch name.
+        </ResponseField>
+        
+        <ResponseField name="folder" type="object">
+          Monorepo/subfolder configuration.
+          
+          <ResponseField name="enabled" type="boolean">
+            Whether folder mode is enabled.
+          </ResponseField>
+          
+          <ResponseField name="name" type="string">
+            Folder name (if enabled).
+          </ResponseField>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="buildCommand" type="string">
+      Build command (static projects only).
+    </ResponseField>
+    
+    <ResponseField name="publishDir" type="string">
+      Publish directory (static projects only).
+    </ResponseField>
+    
+    <ResponseField name="startCommand" type="string">
+      Start command (node projects only).
+    </ResponseField>
+    
+    <ResponseField name="port" type="number">
+      Application port (node projects only).
+    </ResponseField>
+    
+    <ResponseField name="plan" type="string">
+      Subscription plan (`free` or `pro`).
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp of project creation.
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string">
+      ISO 8601 timestamp of last update.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Error Responses
+
+<ResponseField name="message" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+### Common Errors
+
+- **400 Bad Request**: Validation errors (invalid projectId format, missing required fields, invalid projectType)
+- **400 Bad Request**: `"Invalid ProjectId"` - Project not found
+- **400 Bad Request**: `"reconfig not"` - Project status is not `pending`
+- **403 Forbidden**: `"You are not authorized to deploy this project"` - User doesn't own the project
+- **500 Internal Server Error**: `"Internal server Error"` - Server processing error
+
+## Build Queue Integration
+
+On successful deployment creation:
+1. A new `Build` record is created with status `pending`
+2. A unique subdomain is generated with format `{name}-{6-char-random}`
+3. A `Binding` record is created linking the subdomain to the project and port
+4. Subdomain data is cached in Redis with port, projectId, and plan
+5. Build job is added to `buildqueue` with buildId and projectId
+6. Project status remains in original state until build worker processes it
+
+## Request Examples
+
+### Static Project (React App)
+
+```json
+{
+  "projectId": "507f1f77bcf86cd799439011",
+  "name": "my-react-app",
+  "codeLink": "https://github.com/username/react-app.git",
+  "projectType": "static",
+  "buildCommand": "npm run build",
+  "publishDir": "dist",
+  "branchname": "main",
+  "isFolder": false,
+  "env": {
+    "VITE_API_URL": "https://api.example.com",
+    "NODE_ENV": "production"
+  }
+}
+```
+
+### Node.js Application
+
+```json
+{
+  "projectId": "507f1f77bcf86cd799439012",
+  "name": "express-api",
+  "codeLink": "https://github.com/username/express-server",
+  "projectType": "node",
+  "startCommand": "node server.js",
+  "port": 3000,
+  "branchname": "main",
+  "isFolder": false,
+  "env": {
+    "DATABASE_URL": "postgresql://...",
+    "JWT_SECRET": "your-secret-key"
+  }
+}
+```
+
+### Monorepo Project
+
+```json
+{
+  "projectId": "507f1f77bcf86cd799439013",
+  "name": "frontend",
+  "codeLink": "https://github.com/username/monorepo.git",
+  "projectType": "static",
+  "buildCommand": "npm run build",
+  "publishDir": "build",
+  "branchname": "develop",
+  "isFolder": true,
+  "folderName": "packages/frontend",
+  "env": {
+    "REACT_APP_API_URL": "https://api.example.com"
+  }
+}
+```
+
+## Response Example
+
+```json
+{
+  "success": true,
+  "buildId": "507f1f77bcf86cd799439020",
+  "status": "queued",
+  "newProject": {
+    "_id": "507f1f77bcf86cd799439011",
+    "name": "my-react-app",
+    "owner": "507f1f77bcf86cd799439000",
+    "projectType": "static",
+    "repoLink": "https://github.com/username/react-app.git",
+    "buildCommand": "npm run build",
+    "publishDir": "dist",
+    "status": "pending",
+    "subdomain": "my-react-app-a3f9k2",
+    "buildId": "507f1f77bcf86cd799439020",
+    "totalBuilds": 1,
+    "env": {
+      "VITE_API_URL": "https://api.example.com",
+      "NODE_ENV": "production"
+    },
+    "settings": {
+      "repoBranchName": "main",
+      "folder": {
+        "enabled": false
+      }
+    },
+    "plan": "free",
+    "totalRequest": 0,
+    "hascustomDomain": false,
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+## Commit SHA Fetching
+
+The endpoint attempts to fetch the latest commit SHA from GitHub:
+- Uses the GitHub API: `GET /repos/{owner}/{repo}/git/ref/heads/{branch}`
+- Includes user's `githubAccessToken` if available for private repos
+- Falls back gracefully if fetch fails (continues without commit check)
+- Extracted owner and repo from `codeLink` automatically

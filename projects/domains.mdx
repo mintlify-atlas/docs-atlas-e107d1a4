@@ -1,0 +1,419 @@
+---
+title: 'Domain Management'
+description: 'Manage subdomains and custom domains for your projects'
+---
+
+## Overview
+
+Every DeployHub project can be accessed via a subdomain or a custom domain. Subdomains are automatically generated during project creation and can be updated at any time.
+
+## Domain Structure
+
+Projects support two types of domains:
+
+<CardGroup cols={2}>
+  <Card title="Subdomain" icon="link">
+    Automatically generated: `{name}-{random}.deployhub.online`
+  </Card>
+  <Card title="Custom Domain" icon="globe">
+    Your own domain: `www.example.com`
+  </Card>
+</CardGroup>
+
+## Get Project Domains
+
+<Card title="GET /api/projects/:id/domains" icon="server">
+  Retrieve domain configuration for a project.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Path Parameters:**
+
+<ParamField path="id" type="string" required>
+  Project ID (MongoDB ObjectId)
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "507f1f77bcf86cd799439011",
+    "subdomain": "my-website-a3f5k2",
+    "hascustomDomain": false,
+    "customDomain": null,
+    "plan": "free"
+  }
+}
+```
+
+**With Custom Domain:**
+
+```json
+{
+  "success": true,
+  "project": {
+    "_id": "507f1f77bcf86cd799439011",
+    "subdomain": "my-website-a3f5k2",
+    "hascustomDomain": true,
+    "customDomain": "www.example.com",
+    "plan": "pro"
+  }
+}
+```
+
+## Subdomain Generation
+
+Subdomains are automatically generated during project creation using this algorithm:
+
+### Generation Logic
+
+```javascript
+const generateUniqueName = async (name) => {
+  let attempts = 0;
+  while (attempts < 20) {
+    const uniqueName = Math.random().toString(36).substring(2, 8);
+    const subdomain = `${name.toLowerCase()}-${uniqueName}`;
+
+    const existingDomain = await Model.Binding.findOne({ subdomain });
+    if (!existingDomain) {
+      const binding = new Model.Binding({
+        project: projectId,
+        subdomain: subdomain,
+        port: projectinternalPort
+      });
+      await binding.save({ validateBeforeSave: false });
+      return binding;
+    }
+    attempts++;
+  }
+  throw new Error("Could not generate unique subdomain after 20 attempts");
+};
+```
+
+### Subdomain Format
+
+<ParamField path="subdomain" type="string">
+  Format: `{project-name}-{6-char-random}`
+  
+  - Project name is converted to lowercase
+  - Random string is 6 characters (base-36: `0-9`, `a-z`)
+  - Up to 20 attempts to ensure uniqueness
+</ParamField>
+
+**Example:** `my-website-a3f5k2`
+
+### Full URL
+
+The complete domain is: `{subdomain}.deployhub.online`
+
+**Example:** `https://my-website-a3f5k2.deployhub.online`
+
+## Update Subdomain
+
+<Card title="PATCH /api/projects/:id/domains/subdomain" icon="pencil">
+  Change the subdomain for a project. This triggers a container rebuild.
+</Card>
+
+**Authentication Required:** Yes (JWT)
+
+**Request Body:**
+
+<ParamField body="subdomain" type="string" required>
+  New subdomain (without `.deployhub.online`)
+  
+  **Validation:** Must match pattern `/^[a-z0-9-]{3,40}$/`
+  - Only lowercase letters, numbers, and hyphens
+  - Length: 3-40 characters
+</ParamField>
+
+**Example Request:**
+
+```json
+{
+  "subdomain": "my-awesome-site"
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "subdomain": "my-awesome-site",
+  "message": "Subdomain updated. Project is restarting."
+}
+```
+
+### Subdomain Validation
+
+```javascript
+if (!subdomain || !/^[a-z0-9-]{3,40}$/.test(subdomain)) {
+  return res.status(400).json({
+    success: false,
+    message: 'Invalid subdomain. Use lowercase letters, numbers, hyphens (3-40 chars).',
+  });
+}
+```
+
+**Valid Examples:**
+- `my-site`
+- `production-app-2024`
+- `web-app-v2`
+- `my-project`
+
+**Invalid Examples:**
+- `My-Site` (uppercase not allowed)
+- `my_site` (underscores not allowed)
+- `ab` (too short, minimum 3 characters)
+- `my.site` (dots not allowed)
+
+### Uniqueness Check
+
+```javascript
+const existing = await Model.Project.findOne({
+  subdomain,
+  _id: { $ne: req.params.id },
+  status: { $ne: 'deleted' },
+}).select('_id').lean();
+
+if (existing) {
+  return res.status(409).json({
+    success: false,
+    message: 'This subdomain is already taken. Please choose another.',
+  });
+}
+```
+
+<Note>
+  The uniqueness check excludes the current project and deleted projects.
+</Note>
+
+## Subdomain Update Process
+
+When updating a subdomain, several operations occur:
+
+### 1. Update Project Status
+
+```javascript
+project.subdomain = subdomain;
+project.status = "building";
+await project.save({ validateBeforeSave: false });
+```
+
+The project status is set to `"building"` during the subdomain transition.
+
+### 2. Update Binding
+
+```javascript
+const allocation = await Model.Binding.findOne({project: project._id});
+allocation.subdomain = subdomain;
+await allocation.save({validateBeforeSave: false});
+```
+
+The `Binding` model tracks the port allocation for the subdomain.
+
+### 3. Update Redis Cache
+
+```javascript
+// Remove old subdomain cache
+await redisclient.del(`subdomain:${data.oldcontainername}`);
+
+// Create new subdomain cache
+await redisclient.hset(`subdomain:${project.subdomain}`, {
+  port: allocation.port,
+  projectId: project._id.toString(),
+  plan: project.plan
+});
+```
+
+Redis is used for fast subdomain-to-project routing.
+
+### 4. Queue Container Rebuild
+
+```javascript
+const data = {
+  projectId: project._id,
+  oldcontainername: project.subdomain,  // Before update
+  newcontainername: subdomain            // After update
+};
+
+await recreateContainer.add('deployhub-recreate-container', data);
+```
+
+A worker recreates the Docker container with the new subdomain.
+
+## Binding Model
+
+The `Binding` model manages domain-to-port mappings:
+
+```javascript
+{
+  project: ObjectId,        // Reference to Project
+  subdomain: String,        // Subdomain (indexed)
+  port: String,            // Internal port
+  customDomain: String     // Optional custom domain
+}
+```
+
+**Index:** `subdomain` field is indexed for fast lookups
+
+### Port Allocation
+
+For static projects:
+```javascript
+projectinternalPort = 80
+```
+
+For Node.js projects:
+```javascript
+projectinternalPort = port  // User-specified port
+```
+
+## Custom Domains
+
+Custom domains are tracked in the project model:
+
+```javascript
+hascustomDomain: {
+  type: Boolean,
+  default: false
+},
+customDomain: {
+  type: String
+}
+```
+
+<Note>
+  Custom domain configuration endpoints are not shown in the provided source code. Custom domain setup may require additional DNS configuration and SSL certificate generation.
+</Note>
+
+## Redis Caching Strategy
+
+Subdomains are cached in Redis for fast request routing:
+
+**Key Format:** `subdomain:{subdomain-name}`
+
+**Cached Data:**
+```javascript
+{
+  port: "80",
+  projectId: "507f1f77bcf86cd799439011",
+  plan: "free"
+}
+```
+
+This allows the reverse proxy to quickly determine which container to route requests to without querying the database.
+
+## Example: Update Subdomain
+
+```javascript
+const updateSubdomain = async (projectId, newSubdomain) => {
+  const response = await fetch(
+    `/api/projects/${projectId}/domains/subdomain`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        subdomain: newSubdomain
+      })
+    }
+  );
+  
+  const data = await response.json();
+  
+  if (data.success) {
+    console.log(`Subdomain updated to: ${data.subdomain}`);
+    console.log('Container is being rebuilt...');
+    
+    // Poll for status
+    pollProjectStatus(projectId);
+  } else {
+    console.error(`Error: ${data.message}`);
+  }
+};
+
+const pollProjectStatus = async (projectId) => {
+  const response = await fetch(`/api/projects/${projectId}/overview`);
+  const { project } = await response.json();
+  
+  if (project.status === 'building') {
+    console.log('Still rebuilding...');
+    setTimeout(() => pollProjectStatus(projectId), 5000);
+  } else if (project.status === 'live') {
+    console.log(`Project is live at: ${project.domain}`);
+  }
+};
+```
+
+## Error Responses
+
+### 400 Bad Request - Invalid Format
+
+```json
+{
+  "success": false,
+  "message": "Invalid subdomain. Use lowercase letters, numbers, hyphens (3-40 chars)."
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "success": false,
+  "message": "Project not found"
+}
+```
+
+### 409 Conflict
+
+```json
+{
+  "success": false,
+  "message": "This subdomain is already taken. Please choose another."
+}
+```
+
+### 500 Server Error
+
+```json
+{
+  "success": false,
+  "message": "Server error"
+}
+```
+
+## Security Considerations
+
+<CardGroup cols={2}>
+  <Card title="Ownership Verification" icon="shield">
+    All domain operations verify that the authenticated user owns the project
+  </Card>
+  <Card title="Uniqueness Enforcement" icon="fingerprint">
+    Subdomain uniqueness is enforced at the database level with indexed queries
+  </Card>
+  <Card title="Status Filtering" icon="filter">
+    Deleted projects are excluded from subdomain availability checks
+  </Card>
+  <Card title="Redis Sync" icon="sync">
+    Redis cache is updated atomically with database changes
+  </Card>
+</CardGroup>
+
+## Domain Display Logic
+
+When displaying a project's domain, use this logic:
+
+```javascript
+const domain = project.hascustomDomain && project.customDomain
+  ? project.customDomain
+  : `${project.subdomain}.deployhub.online`;
+```
+
+This ensures custom domains take precedence when configured.

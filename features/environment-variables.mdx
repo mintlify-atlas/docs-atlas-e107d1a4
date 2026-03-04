@@ -1,0 +1,512 @@
+---
+title: Environment Variables
+description: Managing environment variables and secrets in DeployHub
+---
+
+DeployHub provides comprehensive environment variable management for both build-time and runtime configuration of your applications.
+
+## Environment Variable Storage
+
+Environment variables are stored as a Map in the Project model:
+
+```javascript
+// From project.model.js:35-38
+env: {
+  type: Map,
+  of: String
+}
+```
+
+<Info>Using MongoDB Map type allows flexible key-value storage without predefined schemas.</Info>
+
+## Setting Environment Variables
+
+Environment variables can be set during deployment creation:
+
+```javascript
+// From createDeployment.controller.js:185-189
+if (env) {
+  for (const [key, value] of Object.entries(env)) {
+    newProject.env.set(key, value);
+  }
+}
+await newProject.save({ validateBeforeSave: false });
+```
+
+**API Request:**
+```javascript
+POST /api/deployment/create
+
+{
+  "projectId": "507f1f77bcf86cd799439011",
+  "name": "my-app",
+  "projectType": "static",
+  "env": {
+    "VITE_API_URL": "https://api.example.com",
+    "VITE_APP_TITLE": "My Awesome App",
+    "VITE_ENABLE_ANALYTICS": "true"
+  }
+}
+```
+
+## Static Sites (Build-Time Variables)
+
+For static sites, environment variables are injected during the Docker build process:
+
+### Variable Injection
+
+```javascript
+// From buildworker.js:88-99
+let viteEnvContent = "";
+
+if (projectdata.env) {
+  for (const [key, value] of Object.entries(projectdata.env)) {
+    viteEnvContent += `${key}=${value}\n`;
+  }
+}
+
+const dynamicBuildArgs = {
+  BUILD_CMD: projectdata.buildCommand || "",
+  BUILD_DIR: projectdata.publishDir,
+  VITE_ENV_CONTENT: viteEnvContent
+};
+```
+
+### Dockerfile Integration
+
+```dockerfile
+# From dockerTemplets/static/Dockerfile:12-15
+ARG VITE_ENV_CONTENT
+
+# Write .env file
+RUN echo "$VITE_ENV_CONTENT" > .env
+
+# Run build command
+RUN if [ -n "$BUILD_CMD" ]; then sh -c "$BUILD_CMD"; else npm run build; fi
+```
+
+<Tip>Variables prefixed with `VITE_`, `REACT_APP_`, or `NEXT_PUBLIC_` are accessible in your frontend code.</Tip>
+
+**Example Usage in React:**
+```javascript
+// Access in your React app
+const apiUrl = import.meta.env.VITE_API_URL;
+const appTitle = import.meta.env.VITE_APP_TITLE;
+
+console.log('API URL:', apiUrl);
+```
+
+## Node.js Applications (Runtime Variables)
+
+For Node.js apps, environment variables are passed to the container at runtime:
+
+### Container Environment
+
+```javascript
+// From deployworker.js:64-78
+const envVariables = [];
+if (projectData.env) {
+  for (const [key, value] of Object.entries(projectData.env)) {
+    envVariables.push(`${key}=${value}`);
+  }
+}
+
+const container = await docker.createContainer({
+  Image: imageName,
+  name: `${bindingData.subdomain}`,
+  Env: envVariables,
+  HostConfig: {
+    NetworkMode: "users"
+  }
+});
+
+await container.start();
+```
+
+**Example Variables:**
+```javascript
+[
+  "DATABASE_URL=postgresql://user:pass@host:5432/db",
+  "JWT_SECRET=your-secret-key",
+  "NODE_ENV=production",
+  "PORT=3000"
+]
+```
+
+**Access in Node.js:**
+```javascript
+const databaseUrl = process.env.DATABASE_URL;
+const jwtSecret = process.env.JWT_SECRET;
+const port = process.env.PORT || 3000;
+
+console.log('Starting server on port:', port);
+```
+
+<Info>Node.js environment variables are available through `process.env` and can be updated without rebuilding.</Info>
+
+## Updating Environment Variables
+
+Update environment variables through the project settings API:
+
+```javascript
+// From settings.js:96-122
+export const updateEnvSettings = async (req, res) => {
+  const { env } = req.body; // plain object { KEY: 'value' }
+
+  if (typeof env !== 'object' || Array.isArray(env)) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'env must be a key-value object' 
+    });
+  }
+
+  // Validate keys — no empty keys
+  for (const key of Object.keys(env)) {
+    if (!key.trim()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Empty env key not allowed' 
+      });
+    }
+  }
+
+  const project = await Model.Project.findOneAndUpdate(
+    { _id: req.params.id, owner: req.user._id, status: { $ne: 'deleted' } },
+    { $set: { env: new Map(Object.entries(env)) } },
+    { new: true }
+  ).select('env');
+
+  if (!project) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Project not found' 
+    });
+  }
+
+  res.status(200).json({ success: true });
+};
+```
+
+**API Endpoint:**
+```javascript
+PATCH /api/projects/:id/settings/env
+
+{
+  "env": {
+    "VITE_API_URL": "https://api-new.example.com",
+    "DATABASE_URL": "postgresql://newhost:5432/db",
+    "FEATURE_FLAG_X": "enabled"
+  }
+}
+```
+
+<Warning>For static sites, changing environment variables requires a full rebuild. For Node.js apps, redeploy to apply changes.</Warning>
+
+## Retrieving Environment Variables
+
+Get current environment variables:
+
+```javascript
+// From settings.js:4-33
+export const getProjectSettings = async (req, res) => {
+  const project = await Model.Project.findOne({
+    _id: req.params.id,
+    owner: req.user._id,
+    status: { $ne: 'deleted' },
+  })
+    .select('name projectType settings buildCommand publishDir startCommand port env createdAt')
+    .lean();
+
+  if (!project) {
+    return res.status(404).json({ 
+      success: false, 
+      message: 'Project not found' 
+    });
+  }
+
+  // Convert Map to plain object
+  let env = {};
+  if (project.env) {
+    if (project.env instanceof Map) {
+      env = Object.fromEntries(project.env);
+    } else if (typeof project.env === 'object') {
+      env = { ...project.env };
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    project: { ...project, env },
+  });
+};
+```
+
+**API Endpoint:**
+```javascript
+GET /api/projects/:id/settings
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "project": {
+    "name": "my-app",
+    "projectType": "static",
+    "env": {
+      "VITE_API_URL": "https://api.example.com",
+      "VITE_APP_TITLE": "My App"
+    }
+  }
+}
+```
+
+## Redeployment with Updated Variables
+
+When environment variables change during redeployment:
+
+```javascript
+// From reDeploy.worker.js:386-391
+const envVariables = [];
+if (projectData.env) {
+  for (const [key, value] of Object.entries(projectData.env)) {
+    envVariables.push(`${key}=${value}`);
+  }
+}
+```
+
+The redeployment worker:
+1. **Fetches latest** environment variables from database
+2. **Rebuilds image** (static) or **recreates container** (Node.js)
+3. **Injects updated** variables into build/runtime
+
+## Security Best Practices
+
+<Card title="Secrets Management" icon="lock">
+  **DO:**
+  - Use environment variables for API keys, tokens, passwords
+  - Never commit secrets to Git
+  - Rotate secrets regularly
+  
+  **DON'T:**
+  - Hardcode secrets in source code
+  - Share secrets in plain text
+  - Use the same secrets for dev/prod
+</Card>
+
+### Recommended Variable Naming
+
+```javascript
+// Good examples
+{
+  "DATABASE_URL": "postgresql://...",
+  "JWT_SECRET": "...",
+  "STRIPE_API_KEY": "...",
+  "VITE_API_ENDPOINT": "https://..."
+}
+
+// Avoid
+{
+  "password": "123456",        // Too generic
+  "key": "secret",             // Unclear purpose
+  "MY_SECRET": "visible_value" // Not actually secret
+}
+```
+
+<Tip>Use SCREAMING_SNAKE_CASE for environment variable names to match industry conventions.</Tip>
+
+## Framework-Specific Variables
+
+### Vite (React, Vue, Svelte)
+
+Variables must be prefixed with `VITE_`:
+
+```javascript
+{
+  "VITE_API_URL": "https://api.example.com",
+  "VITE_APP_NAME": "My App",
+  "VITE_ENABLE_FEATURE_X": "true"
+}
+```
+
+### Create React App
+
+Variables must be prefixed with `REACT_APP_`:
+
+```javascript
+{
+  "REACT_APP_API_URL": "https://api.example.com",
+  "REACT_APP_GA_TRACKING_ID": "UA-XXXXXXXXX-X"
+}
+```
+
+### Next.js
+
+Public variables must be prefixed with `NEXT_PUBLIC_`:
+
+```javascript
+{
+  "NEXT_PUBLIC_API_URL": "https://api.example.com",
+  "DATABASE_URL": "postgresql://..."  // Server-side only
+}
+```
+
+### Node.js / Express
+
+No prefix required:
+
+```javascript
+{
+  "PORT": "3000",
+  "NODE_ENV": "production",
+  "DATABASE_URL": "postgresql://...",
+  "REDIS_URL": "redis://..."
+}
+```
+
+## Common Environment Variables
+
+### Backend Services
+
+```javascript
+{
+  // Database
+  "DATABASE_URL": "postgresql://user:pass@host:5432/db",
+  "MONGODB_URI": "mongodb://host:27017/dbname",
+  
+  // Cache
+  "REDIS_URL": "redis://host:6379",
+  
+  // Authentication
+  "JWT_SECRET": "your-secret-key",
+  "SESSION_SECRET": "your-session-secret",
+  
+  // External APIs
+  "STRIPE_SECRET_KEY": "sk_live_...",
+  "SENDGRID_API_KEY": "SG...",
+  
+  // Application
+  "NODE_ENV": "production",
+  "PORT": "3000",
+  "LOG_LEVEL": "info"
+}
+```
+
+### Frontend Applications
+
+```javascript
+{
+  // API Configuration
+  "VITE_API_URL": "https://api.example.com",
+  "VITE_WS_URL": "wss://ws.example.com",
+  
+  // Feature Flags
+  "VITE_ENABLE_ANALYTICS": "true",
+  "VITE_ENABLE_DARK_MODE": "true",
+  
+  // Public Keys (safe to expose)
+  "VITE_STRIPE_PUBLIC_KEY": "pk_live_...",
+  "VITE_GOOGLE_MAPS_KEY": "AIza...",
+  
+  // Application
+  "VITE_APP_NAME": "My Application",
+  "VITE_APP_VERSION": "1.0.0"
+}
+```
+
+## Validation Rules
+
+<Warning>
+  - Keys cannot be empty or whitespace-only
+  - Values are stored as strings (convert to numbers/booleans in code)
+  - Maximum size: Depends on MongoDB document limit (16MB)
+  - Keys are case-sensitive
+</Warning>
+
+## Debugging Environment Variables
+
+### Check Build Logs
+
+For static sites, verify variables are injected:
+
+```bash
+# Build log should show:
+echo "VITE_API_URL=https://api.example.com\nVITE_APP_TITLE=My App" > .env
+```
+
+### Inspect Container Environment
+
+For Node.js apps:
+
+```javascript
+// Add to your app temporarily
+console.log('Environment variables:', process.env);
+```
+
+### Common Issues
+
+**Variable not accessible in frontend:**
+- ❌ `API_URL` - No prefix
+- ✅ `VITE_API_URL` - Correct prefix
+
+**Variable showing as undefined:**
+- Check spelling and case
+- Verify it's set in project settings
+- For static: Rebuild required
+- For Node.js: Redeploy required
+
+## API Reference
+
+### Get Environment Variables
+
+```javascript
+GET /api/projects/:id/settings
+```
+
+Returns all project settings including environment variables.
+
+### Update Environment Variables
+
+```javascript
+PATCH /api/projects/:id/settings/env
+
+{
+  "env": {
+    "KEY1": "value1",
+    "KEY2": "value2"
+  }
+}
+```
+
+<Info>This endpoint replaces all environment variables. Include all keys you want to keep.</Info>
+
+## Limitations
+
+- No built-in encryption (store sensitive data carefully)
+- Variables visible to project owner in API responses
+- No versioning or history tracking
+- Static sites require rebuild for changes to take effect
+
+## Best Practices Summary
+
+<Steps>
+  <Step title="Use Descriptive Names">
+    Name variables clearly: `DATABASE_URL` not `DB`
+  </Step>
+  
+  <Step title="Prefix Frontend Variables">
+    Use `VITE_`, `REACT_APP_`, or `NEXT_PUBLIC_` prefixes
+  </Step>
+  
+  <Step title="Separate Environments">
+    Use different values for development, staging, production
+  </Step>
+  
+  <Step title="Never Commit Secrets">
+    Keep `.env` files out of version control
+  </Step>
+  
+  <Step title="Redeploy After Changes">
+    Remember to redeploy for changes to take effect
+  </Step>
+</Steps>

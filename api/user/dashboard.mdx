@@ -1,0 +1,217 @@
+---
+title: "Dashboard Statistics"
+description: "Retrieve aggregated dashboard statistics and recent projects"
+---
+
+## Get Dashboard Stats
+
+<RequestExample>
+```bash
+GET /api/dashboard
+```
+</RequestExample>
+
+Retrieves comprehensive dashboard statistics including project counts, status breakdowns, and recent projects for the authenticated user.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the request was successful
+</ResponseField>
+
+<ResponseField name="stats" type="object">
+  Aggregated statistics for all user projects
+  
+  <Expandable title="stats properties">
+    <ResponseField name="totalProjects" type="number">
+      Total number of projects (excluding deleted)
+    </ResponseField>
+    
+    <ResponseField name="liveCount" type="number">
+      Number of projects with status `live`
+    </ResponseField>
+    
+    <ResponseField name="stoppedCount" type="number">
+      Number of projects with status `stopped`
+    </ResponseField>
+    
+    <ResponseField name="staticCount" type="number">
+      Number of static projects (projectType: `Static` or `static`)
+    </ResponseField>
+    
+    <ResponseField name="nodeCount" type="number">
+      Number of Node.js projects (projectType: `node`)
+    </ResponseField>
+    
+    <ResponseField name="totalRequests" type="number">
+      Cumulative total requests across all projects
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="recentProjects" type="array">
+  Array of the 4 most recently updated projects
+  
+  <Expandable title="project properties">
+    <ResponseField name="_id" type="string">
+      Project unique identifier
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Project name
+    </ResponseField>
+    
+    <ResponseField name="projectType" type="string">
+      Project type (`Static`, `static`, or `node`)
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current project status (`live` or `stopped`)
+    </ResponseField>
+    
+    <ResponseField name="plan" type="string">
+      Subscription plan for the project
+    </ResponseField>
+    
+    <ResponseField name="totalRequest" type="number">
+      Total number of requests for this project
+    </ResponseField>
+    
+    <ResponseField name="totalBuilds" type="number">
+      Total number of builds for this project
+    </ResponseField>
+    
+    <ResponseField name="domain" type="string">
+      Project domain (custom domain if configured, otherwise subdomain.deployhub.online)
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string">
+      Last update timestamp
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string">
+      Project creation timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "stats": {
+    "totalProjects": 12,
+    "liveCount": 8,
+    "stoppedCount": 4,
+    "staticCount": 7,
+    "nodeCount": 5,
+    "totalRequests": 145032
+  },
+  "recentProjects": [
+    {
+      "_id": "507f1f77bcf86cd799439011",
+      "name": "my-portfolio",
+      "projectType": "Static",
+      "status": "live",
+      "plan": "pro",
+      "totalRequest": 25430,
+      "totalBuilds": 12,
+      "domain": "example.com",
+      "updatedAt": "2024-03-15T14:22:00.000Z",
+      "createdAt": "2024-01-10T08:15:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439012",
+      "name": "api-service",
+      "projectType": "node",
+      "status": "live",
+      "plan": "business",
+      "totalRequest": 89456,
+      "totalBuilds": 45,
+      "domain": "api-service.deployhub.online",
+      "updatedAt": "2024-03-14T10:15:00.000Z",
+      "createdAt": "2024-02-01T12:30:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439013",
+      "name": "docs-site",
+      "projectType": "static",
+      "status": "stopped",
+      "plan": "free",
+      "totalRequest": 1203,
+      "totalBuilds": 5,
+      "domain": "docs-site.deployhub.online",
+      "updatedAt": "2024-03-10T16:45:00.000Z",
+      "createdAt": "2024-02-20T09:00:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439014",
+      "name": "blog",
+      "projectType": "Static",
+      "status": "live",
+      "plan": "pro",
+      "totalRequest": 12890,
+      "totalBuilds": 8,
+      "domain": "blog.deployhub.online",
+      "updatedAt": "2024-03-08T11:20:00.000Z",
+      "createdAt": "2024-01-25T14:00:00.000Z"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+## Implementation Details
+
+### Query Logic
+
+- Fetches all projects owned by the authenticated user
+- Excludes projects with status `deleted`
+- Projects are sorted by `updatedAt` in descending order (most recent first)
+- Uses lean queries for optimal performance
+
+### Statistics Aggregation
+
+- **totalProjects**: Count of all non-deleted projects
+- **liveCount**: Filtered count where `status === "live"`
+- **stoppedCount**: Filtered count where `status === "stopped"`
+- **staticCount**: Filtered count where `projectType === "Static" || projectType === "static"`
+- **nodeCount**: Filtered count where `projectType === "node"`
+- **totalRequests**: Sum of `totalRequest` field across all projects using reduce
+
+### Recent Projects
+
+- Returns the first 4 projects from the sorted list (most recently updated)
+- Domain logic: displays custom domain if `hascustomDomain` is true, otherwise uses `{subdomain}.deployhub.online` format
+
+### Selected Fields
+
+The query selects the following fields from the Project model:
+- name
+- projectType
+- status
+- totalRequest
+- totalBuilds
+- plan
+- subdomain
+- hascustomDomain
+- customDomain
+- createdAt
+- updatedAt
+
+### Error Response
+
+<ResponseExample>
+```json
+{
+  "success": false,
+  "message": "Failed to fetch dashboard stats"
+}
+```
+</ResponseExample>

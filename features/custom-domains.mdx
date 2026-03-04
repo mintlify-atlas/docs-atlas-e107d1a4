@@ -1,0 +1,447 @@
+---
+title: Domains & Subdomains
+description: Managing subdomain allocation and custom domains
+---
+
+DeployHub automatically assigns each project a unique subdomain and supports custom domain configuration for professional deployments.
+
+## Automatic Subdomain Allocation
+
+Every project receives a unique subdomain during deployment:
+
+```javascript
+// From createDeployment.controller.js:158-179
+const generateUniqueName = async (name) => {
+  let attempts = 0;
+  while (attempts < 20) {
+    const uniqueName = Math.random().toString(36).substring(2, 8);
+    const subdomain = `${name.toLowerCase()}-${uniqueName}`;
+
+    const existingDomain = await Model.Binding.findOne({ subdomain });
+    if (!existingDomain) {
+      const binding = new Model.Binding({
+        project: projectId,
+        subdomain: subdomain,
+        port: projectinternalPort
+      });
+      await binding.save({ validateBeforeSave: false });
+      return binding;
+    }
+    attempts++;
+  }
+  throw new Error("Could not generate unique subdomain after 20 attempts");
+};
+
+const allocation = await generateUniqueName(name);
+```
+
+**Subdomain Format:**
+```
+<project-name>-<random-6-chars>.deployhub.cloud
+```
+
+**Example:**
+```
+my-app-a8c7d2.deployhub.cloud
+vite-react-x3k9m1.deployhub.cloud
+api-server-p7q2w5.deployhub.cloud
+```
+
+<Info>The random suffix ensures uniqueness and prevents subdomain conflicts.</Info>
+
+## Subdomain Binding Model
+
+Each subdomain is tracked in the Binding collection:
+
+```javascript
+// From binding.model.js:3-21
+const bindingSchema = new mongoose.Schema({
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Project'
+  },
+  subdomain: {
+    type: String,
+    required: true,
+    index: true  // Fast lookups
+  },
+  port: {
+    type: String,
+    required: true,
+  },
+  customDomain: {
+    type: String
+  }
+});
+```
+
+**Key Fields:**
+- `subdomain` - Unique identifier (indexed for fast routing)
+- `port` - Internal container port (80 for static, custom for Node.js)
+- `project` - Reference to Project document
+- `customDomain` - Optional custom domain
+
+## Redis Caching for Fast Routing
+
+Subdomain mappings are cached in Redis for microsecond-latency lookups:
+
+```javascript
+// From createDeployment.controller.js:194-199
+await redisclient.hset(`subdomain:${allocation.subdomain}`, {
+  port: allocation.port,
+  projectId: newProject._id.toString(),
+  plan: newProject.plan
+});
+```
+
+**Redis Key Structure:**
+```
+Key: subdomain:my-app-a8c7d2
+
+Value: {
+  port: "80",
+  projectId: "507f1f77bcf86cd799439011",
+  plan: "free"
+}
+```
+
+<Tip>The reverse proxy checks Redis first before querying MongoDB, ensuring ultra-fast request routing.</Tip>
+
+## Updating Subdomains
+
+Users can change their subdomain to a custom value:
+
+```javascript
+// From domain.controller.js:29-92
+export const updateSubdomain = async (req, res) => {
+  const { subdomain } = req.body;
+
+  // Validation: lowercase letters, numbers, hyphens (3-40 chars)
+  if (!subdomain || !/^[a-z0-9-]{3,40}$/.test(subdomain)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid subdomain. Use lowercase letters, numbers, hyphens (3-40 chars).',
+    });
+  }
+
+  // Check availability
+  const existing = await Model.Project.findOne({
+    subdomain,
+    _id: { $ne: req.params.id },
+    status: { $ne: 'deleted' },
+  }).select('_id').lean();
+
+  if (existing) {
+    return res.status(409).json({
+      success: false,
+      message: 'This subdomain is already taken. Please choose another.',
+    });
+  }
+
+  const project = await Model.Project.findOne({ 
+    _id: req.params.id, 
+    owner: req.user._id 
+  });
+
+  const data = {
+    projectId: project._id,
+    oldcontainername: project.subdomain
+  };
+
+  project.subdomain = subdomain;
+  project.status = "building";
+  await project.save({ validateBeforeSave: false });
+
+  data.newcontainername = project.subdomain;
+
+  // Update binding
+  const allocation = await Model.Binding.findOne({project: project._id});
+  allocation.subdomain = subdomain;
+  await allocation.save({validateBeforeSave: false});
+
+  // Update Redis cache
+  await redisclient.del(`subdomain:${data.oldcontainername}`);
+  await redisclient.hset(`subdomain:${project.subdomain}`, {
+    port: allocation.port,
+    projectId: project._id.toString(),
+    plan: project.plan
+  });
+
+  // Recreate container with new name
+  await recreateContainer.add('deployhub-recreate-container', data);
+
+  res.status(200).json({
+    success: true,
+    subdomain: project.subdomain,
+    message: 'Subdomain updated. Project is restarting.',
+  });
+};
+```
+
+**API Endpoint:**
+```javascript
+PATCH /api/projects/:id/domains/subdomain
+
+{
+  "subdomain": "my-custom-name"
+}
+```
+
+**Validation Rules:**
+- 3-40 characters
+- Lowercase letters, numbers, hyphens only
+- Must be unique across all projects
+- No leading/trailing hyphens
+
+<Warning>Updating subdomain triggers a container recreation. Your app will be briefly unavailable during the switch.</Warning>
+
+## Container Recreation Process
+
+When subdomain changes, DeployHub recreates the container:
+
+1. **Stop & Remove** old container
+2. **Update** Redis cache
+3. **Create** new container with updated name
+4. **Start** container
+
+```javascript
+// Worker handles container recreation
+await recreateContainer.add('deployhub-recreate-container', {
+  projectId: project._id,
+  oldcontainername: 'old-name-a1b2c3',
+  newcontainername: 'new-name-x7y8z9'
+});
+```
+
+## Custom Domains
+
+### Project Model Schema
+
+```javascript
+// From project.model.js:71-77
+hascustomDomain: {
+  type: Boolean,
+  default: false
+},
+customDomain: {
+  type: String
+},
+subdomain: {
+  type: String
+}
+```
+
+### SSL Certificate Generation
+
+DeployHub uses Certbot with Cloudflare DNS for SSL certificates:
+
+```javascript
+// From generateSslCertificate.js:15-53
+export async function generateCertificate(domain, email) {
+  // 1. Verify DNS points to server
+  const isValid = await isDomainPointingToServer(domain);
+  
+  if (!isValid) {
+    throw new Error(`Domain ${domain} does not point to this server.`);
+  }
+
+  // 2. Run Certbot container
+  const container = await docker.createContainer({
+    Image: "certbot/dns-cloudflare",
+    Cmd: [
+      "certonly",
+      "--dns-cloudflare",
+      "--dns-cloudflare-credentials",
+      "/cf.ini",
+      "--dns-cloudflare-propagation-seconds",
+      "30",
+      "-d",
+      domain,
+      "-d",
+      `*.${domain}`,  // Wildcard support
+      "--email",
+      email,
+      "--agree-tos",
+      "--no-eff-email"
+    ],
+    HostConfig: {
+      Binds: [
+        "/home/rahul/docker/letsencrypt:/etc/letsencrypt",
+        "/home/rahul/secrets/cf.ini:/cf.ini:ro"
+      ],
+      AutoRemove: true
+    }
+  });
+
+  await container.start();
+  await container.wait();
+}
+```
+
+### DNS Verification
+
+```javascript
+// From generateSslCertificate.js:6-12
+async function isDomainPointingToServer(domain) {
+  try {
+    const records = await dns.resolve4(domain);
+    return records.includes(SERVER_IP);
+  } catch {
+    return false;
+  }
+}
+```
+
+<Info>Custom domains must have DNS A records pointing to DeployHub's server IP before SSL generation.</Info>
+
+## Domain Management API
+
+### Get Project Domains
+
+```javascript
+GET /api/projects/:id/domains
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "project": {
+    "subdomain": "my-app-a8c7d2",
+    "hascustomDomain": true,
+    "customDomain": "myapp.example.com",
+    "plan": "pro"
+  }
+}
+```
+
+### Update Subdomain
+
+```javascript
+PATCH /api/projects/:id/domains/subdomain
+
+{
+  "subdomain": "my-new-name"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "subdomain": "my-new-name",
+  "message": "Subdomain updated. Project is restarting."
+}
+```
+
+## Networking Architecture
+
+### Docker Network
+
+All containers run on the `users` Docker network:
+
+```javascript
+// From deployworker.js:38-44
+const container = await docker.createContainer({
+  Image: imageName,
+  name: `${bindingData.subdomain}`,
+  Env: envVariables,
+  HostConfig: {
+    NetworkMode: "users"  // Isolated network
+  }
+});
+```
+
+### Container Naming
+
+Containers are named using their subdomain:
+
+```
+Container Name = Subdomain
+
+Examples:
+  my-app-a8c7d2
+  vite-react-x3k9m1
+  api-server-p7q2w5
+```
+
+<Tip>Container names match subdomains exactly, making debugging and log inspection straightforward.</Tip>
+
+## Reverse Proxy Routing
+
+The Nginx reverse proxy routes requests based on subdomain:
+
+1. **Request arrives** at `my-app-a8c7d2.deployhub.cloud`
+2. **Redis lookup** finds `{ port: "80", projectId: "...", plan: "free" }`
+3. **Proxy forwards** to container `my-app-a8c7d2:80`
+4. **Response returned** to client
+
+## Port Allocation
+
+**Static Sites:** Port 80 (Nginx)
+```javascript
+if (projectType === 'static') {
+  projectinternalPort = 80
+}
+```
+
+**Node.js Apps:** Custom port
+```javascript
+if (projectType === 'node') {
+  projectinternalPort = port  // User-specified
+}
+```
+
+## Best Practices
+
+<Card title="Subdomain Naming" icon="tag">
+  Choose descriptive names that reflect your project:
+  - ✅ `portfolio-john`, `api-production`, `blog-staging`
+  - ❌ `test123`, `asdf`, `aaa`
+</Card>
+
+<Card title="Custom Domains" icon="globe">
+  For production deployments:
+  1. Set up DNS A record pointing to server IP
+  2. Wait for DNS propagation (up to 48 hours)
+  3. Request SSL certificate
+  4. Update project with custom domain
+</Card>
+
+<Card title="Avoid Frequent Changes" icon="warning">
+  Each subdomain change recreates your container:
+  - Brief downtime during switch
+  - New container ID
+  - Stats reset
+</Card>
+
+## Limitations
+
+<Warning>
+  - Maximum 20 subdomain generation attempts
+  - Subdomain length: 3-40 characters
+  - No uppercase letters or special characters (except hyphens)
+  - Custom domains require manual DNS configuration
+  - One custom domain per project
+</Warning>
+
+## Troubleshooting
+
+### "This subdomain is already taken"
+
+Choose a different name - subdomains must be unique across all DeployHub projects.
+
+### "Invalid subdomain"
+
+Ensure your subdomain:
+- Uses only lowercase letters, numbers, hyphens
+- Is between 3-40 characters
+- Doesn't start or end with a hyphen
+
+### Custom domain not working
+
+Check:
+1. DNS A record points to correct IP
+2. DNS has propagated (use `dig yourdomain.com`)
+3. SSL certificate generated successfully
+4. Domain added to project settings

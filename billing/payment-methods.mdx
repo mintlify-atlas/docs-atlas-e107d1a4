@@ -1,0 +1,725 @@
+---
+title: Payment Methods & Razorpay Integration
+description: Complete guide to payment processing, Razorpay setup, and payment verification
+---
+
+## Overview
+
+DeployHub uses **Razorpay** as the payment gateway for all Pro plan subscriptions. Razorpay supports UPI, cards, net banking, and wallets for seamless payments.
+
+<Note>
+Payment integration is implemented in `/prototype/backend/src/controllers/slices/Payments/`
+</Note>
+
+## Razorpay Setup
+
+The backend initializes Razorpay with environment credentials:
+
+```javascript
+// From init.controller.js:6-9
+import Razorpay from 'razorpay';
+
+const razorpay = new Razorpay({
+  key_id: `${process.env.KEY_ID}`,
+  key_secret: `${process.env.KEY_SECRET}`,
+});
+```
+
+<Warning>
+Never expose your Razorpay `KEY_SECRET` in client-side code. All payment verification must happen server-side.
+</Warning>
+
+### Required Environment Variables
+
+```bash .env
+KEY_ID=rzp_live_xxxxxxxxxxxxx
+KEY_SECRET=your_razorpay_secret_key
+NODE_ENV=production
+```
+
+## Payment Flow
+
+The complete payment process follows this workflow:
+
+<Steps>
+  <Step title="Initialize Payment">
+    Client sends plan selection to server
+    
+    ```javascript
+    POST /api/payments/init
+    {
+      "plan": "pro",
+      "months": 12
+    }
+    ```
+  </Step>
+  
+  <Step title="Create Razorpay Order">
+    Server calculates amount and creates order
+    
+    ```javascript
+    // From init.controller.js:53-57
+    const order = await razorpay.orders.create({
+      amount: finalAmount,
+      currency: "INR",
+      receipt: "order_rcptid_" + Math.random(),
+    });
+    ```
+  </Step>
+  
+  <Step title="Store Pending Order">
+    Server saves pending order in database
+    
+    ```javascript
+    // From init.controller.js:59-66
+    await Model.PendingOrder.create({
+      userid: req.user._id,
+      oderid: order.id,
+      months: months,
+      amount: finalAmount,
+      plan: 'pro',
+      status: 'pending'
+    });
+    ```
+  </Step>
+  
+  <Step title="User Completes Payment">
+    Client opens Razorpay checkout with order details
+    
+    User pays via UPI/Card/Net Banking/Wallet
+  </Step>
+  
+  <Step title="Verify Payment">
+    Client sends payment response to server for verification
+    
+    ```javascript
+    POST /api/payments/verify
+    {
+      "razorpay_payment_id": "pay_xxxxx",
+      "razorpay_order_id": "order_xxxxx",
+      "razorpay_signature": "signature_xxxxx"
+    }
+    ```
+  </Step>
+  
+  <Step title="Activate Subscription">
+    Server verifies signature, creates project, activates Pro features
+  </Step>
+</Steps>
+
+## Initialize Payment Endpoint
+
+<Info>
+Implementation: `/prototype/backend/src/controllers/slices/Payments/init.controller.js:11`
+</Info>
+
+### Request
+
+```javascript
+POST /api/payments/init
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN
+
+{
+  "plan": "pro",
+  "months": 12
+}
+```
+
+### Validation
+
+The endpoint validates:
+
+```javascript
+// From init.controller.js:16-26
+if (!plan) {
+  return res.status(400).json({
+    message: "Plan is required"
+  });
+}
+
+if (plan !== 'free' && !months) {
+  return res.status(400).json({
+    message: "Months required for paid plans"
+  });
+}
+```
+
+### Free Plan Handling
+
+Free plan projects are created without payment:
+
+```javascript
+// From init.controller.js:28-37
+if (plan === 'free') {
+  const project = new Model.Project({
+    paymentId: null,
+    owner: req.user._id,
+  });
+  
+  await project.save({ validateBeforeSave: false });
+  
+  return res.json({ success: true, project });
+}
+```
+
+### Pro Plan Processing
+
+For Pro plans, amount is calculated with discounts:
+
+```javascript
+// From init.controller.js:41-50
+const planInLoweCase = plan.toLowerCase();
+
+if (!planPrice[planInLoweCase]) {
+  return res.status(400).json({ message: "Invalid plan" });
+}
+
+const plans = planPrice[planInLoweCase];
+const basePrice = parseInt(plans.basePrice); // 79900
+const discountRates = plans.discount;
+const discount = discountRates[months] || 0;
+const finalAmount = parseInt(months * basePrice * (1 - discount / 100).toFixed(2));
+```
+
+### Response
+
+```javascript
+// Success response
+{
+  "id": "order_xxxxxxxxxxxxx",
+  "amount": 862800,  // paise
+  "currency": "INR",
+  "receipt": "order_rcptid_0.123456789",
+  "status": "created"
+}
+```
+
+## Payment Verification
+
+<Warning>
+Payment verification is CRITICAL for security. Never trust client-side payment success without server verification.
+</Warning>
+
+### Signature Verification Process
+
+The server uses HMAC-SHA256 to verify Razorpay signatures:
+
+```javascript
+// From verify.controller.js:20-23
+const generated_signature = crypto
+  .createHmac("sha256", `${process.env.KEY_SECRET}`)
+  .update(razorpay_order_id + "|" + razorpay_payment_id)
+  .digest("hex");
+
+if (generated_signature === razorpay_signature) {
+  // Payment is authentic
+}
+```
+
+<Info>
+This verification ensures the payment response came from Razorpay and wasn't tampered with.
+</Info>
+
+### Verify Payment Endpoint
+
+```javascript
+POST /api/payments/verify
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN
+
+{
+  "razorpay_payment_id": "pay_xxxxxxxxxxxxx",
+  "razorpay_order_id": "order_xxxxxxxxxxxxx",
+  "razorpay_signature": "signature_hash_xxxxx"
+}
+```
+
+### Validation Checks
+
+```javascript
+// From verify.controller.js:13-17
+if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+  return res.status(400).json({
+    message: "required details fro verify payment",
+  });
+}
+```
+
+### Duplicate Order Prevention
+
+```javascript
+// From verify.controller.js:45-49
+if (orderfromdb.status === "completed") {
+  return res.status(400).json({
+    message: "Your Oder ALready PRocessed",
+  });
+}
+```
+
+### Subscription Activation
+
+After successful verification:
+
+```javascript
+// From verify.controller.js:51-85
+const months = orderfromdb.months;
+
+const now = new Date();
+const subscriptionend = 
+  process.env.NODE_ENV === "production"
+    ? new Date(now.getTime() + months * 30 * 24 * 60 * 60 * 1000)
+    : new Date(now.getTime() + 60 * 60 * 1000);
+
+// Create completed order (invoice)
+const payment = await Model.CompletedOrder.create({
+  userid: orderfromdb.userid,
+  orderid: orderfromdb.oderid,
+  months: orderfromdb.months,
+  amount: orderfromdb.amount,
+  plan: orderfromdb.plan,
+  status: "completed",
+});
+
+// Create Pro project
+const project = new Model.Project({
+  paymentId: payment._id,
+  plan: payment.plan,
+  startDate: now,
+  endDate: subscriptionend,
+  owner: req.user._id
+});
+
+payment.projectid = project._id;
+await payment.save({validateBeforeSave: false});
+await project.save({validateBeforeSave: false});
+
+// Mark pending order as completed
+orderfromdb.status = "completed";
+await orderfromdb.save({ validateBeforeSave: false });
+```
+
+<Note>
+In development (`NODE_ENV !== "production"`), subscriptions last only 1 hour for testing purposes.
+</Note>
+
+### Success Response
+
+```javascript
+{
+  "success": true,
+  "userSubscribe": true,
+  "projectId": "65b2c3d4e5f6g7h8i9j0k1l2",
+  "message": "Payment verified successfully!"
+}
+```
+
+## Subscription Renewal
+
+### Renewal Information
+
+Get renewal details:
+
+```javascript
+GET /api/payments/renew-info
+Authorization: Bearer YOUR_TOKEN
+```
+
+```javascript
+// From renewInfo.controller.js:7-14
+const previousOrder = await Model.CompletedOrder.findOne({
+  userid: userId
+});
+
+if(!previousOrder){
+  return res.status(400).json({
+    message: "you are not eligible for renew"
+  });
+}
+
+const months = previousOrder.months;
+```
+
+<Info>
+Renewals automatically use the same duration as the previous subscription.
+</Info>
+
+### Initiate Renewal
+
+```javascript
+POST /api/payments/renew
+Authorization: Bearer YOUR_TOKEN
+```
+
+```javascript
+// From renew.controller.js:13-19
+const order = await Model.CompletedOrder.findOne({
+  oderid: req.user.subscriptionId
+});
+
+const months = order.months;
+const basePrice = 81900;  // Note: Different from init price
+const finalAmount = months * basePrice;
+```
+
+<Warning>
+There's a pricing inconsistency: renewal uses `81900` paise (₹819) while initial purchase uses `79900` paise (₹799).
+
+This is from `renew.controller.js:17` - consider standardizing to `planPrice.js` constants.
+</Warning>
+
+### Verify Renewal
+
+```javascript
+POST /api/payments/verify-renew
+Content-Type: application/json
+Authorization: Bearer YOUR_TOKEN
+
+{
+  "razorpay_payment_id": "pay_xxxxx",
+  "razorpay_order_id": "order_xxxxx",
+  "razorpay_signature": "signature_xxxxx"
+}
+```
+
+Renewal extends subscription from the current end date:
+
+```javascript
+// From verifyRenew.js:39-44
+const baseDate = user.subscriptionEnd > new Date()
+  ? new Date(user.subscriptionEnd)  // Extend from current end
+  : new Date();                       // Or start from now if expired
+
+const subscriptionend = new Date(
+  baseDate.getTime() + months * 30 * 24 * 60 * 60 * 1000
+);
+```
+
+## PendingOrder Auto-Expiry
+
+Unpaid orders automatically expire:
+
+```javascript
+// From PendingOrder.js:27-31
+createdAt: {
+  type: Date,
+  expires: 7200,  // 2 hours in seconds
+  default: Date.now
+}
+```
+
+<Info>
+MongoDB automatically deletes pending orders after 2 hours using TTL index.
+</Info>
+
+## Subscription Lifecycle Events
+
+The system schedules automated events:
+
+### Expiry Warning Notification
+
+```javascript
+// From verify.controller.js:58-61
+const isBeforeExpiryDate =
+  process.env.NODE_ENV === "production"
+    ? new Date(now.getTime() + months * 25 * 24 * 60 * 60 * 1000)
+    : new Date(now.getTime() + 2 * 60 * 1000);
+
+await isBeforeExpiryNotify.add(
+  "deployhub-isBeforeExpiryQueue",
+  {
+    userId: req.user._id,
+    email: req.user.email,
+    fullname: req.user.fullName,
+  },
+  {
+    delay: isBeforeExpiryDate - Date.now(),
+    jobId: req.user._id.toString(),
+    removeOnComplete: true,
+  },
+);
+```
+
+<Note>
+Users receive a notification 5 days before subscription expires (25 days after start for 30-day month).
+</Note>
+
+### Subscription Start Email
+
+```javascript
+// From verify.controller.js:101-107
+await subscriptionStart.add("deployhub-subscriptionstart", {
+  fullName: req.user.fullName,
+  email: req.user.email,
+  price: orderfromdb.amount / 100,
+  duration: orderfromdb.months,
+  plan: orderfromdb.plan,
+});
+```
+
+### Subscription Expiry Handler
+
+```javascript
+// From verify.controller.js:109-118
+await subscriptionExpire.add(
+  "deployhub-subscriptionend",
+  {
+    userId: req.user._id,
+  },
+  {
+    jobId: req.user._id.toString(),
+    delay: subscriptionend - Date.now(),
+  },
+);
+```
+
+## Client-Side Integration
+
+<Tabs>
+  <Tab title="React Example">
+    ```jsx
+    import { useRazorpay } from 'react-razorpay';
+    
+    function PaymentButton({ plan, months }) {
+      const { Razorpay } = useRazorpay();
+      
+      const handlePayment = async () => {
+        // 1. Initialize payment
+        const response = await fetch('/api/payments/init', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ plan, months }),
+        });
+        
+        const order = await response.json();
+        
+        // 2. Open Razorpay checkout
+        const options = {
+          key: 'rzp_live_xxxxx', // Your Razorpay key_id
+          amount: order.amount,
+          currency: order.currency,
+          order_id: order.id,
+          name: 'DeployHub',
+          description: `Pro Plan - ${months} months`,
+          handler: async (response) => {
+            // 3. Verify payment
+            const verifyRes = await fetch('/api/payments/verify', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            
+            const result = await verifyRes.json();
+            
+            if (result.success) {
+              alert('Payment successful! Project ID: ' + result.projectId);
+            }
+          },
+        };
+        
+        const rzp = new Razorpay(options);
+        rzp.open();
+      };
+      
+      return (
+        <button onClick={handlePayment}>
+          Subscribe to Pro - {months} months
+        </button>
+      );
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Vanilla JavaScript">
+    ```html
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    
+    <script>
+    async function initiatePayment(plan, months) {
+      // 1. Create order
+      const response = await fetch('/api/payments/init', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
+        body: JSON.stringify({ plan, months }),
+      });
+      
+      const order = await response.json();
+      
+      // 2. Configure Razorpay
+      const options = {
+        key: 'rzp_live_xxxxx',
+        amount: order.amount,
+        currency: 'INR',
+        order_id: order.id,
+        name: 'DeployHub',
+        handler: async function(response) {
+          // 3. Verify on server
+          const verifyRes = await fetch('/api/payments/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + token,
+            },
+            body: JSON.stringify({
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+            }),
+          });
+          
+          const result = await verifyRes.json();
+          console.log('Payment verified:', result);
+        },
+      };
+      
+      const rzp = new Razorpay(options);
+      rzp.open();
+    }
+    </script>
+    ```
+  </Tab>
+</Tabs>
+
+## Error Handling
+
+<AccordionGroup>
+  <Accordion title="Payment Initialization Errors">
+    ```javascript
+    // Missing plan
+    {
+      "message": "Plan is required"
+    }
+    
+    // Missing months for paid plan
+    {
+      "message": "Months required for paid plans"
+    }
+    
+    // Invalid plan
+    {
+      "message": "Invalid plan"
+    }
+    
+    // Razorpay API error
+    {
+      "error": "Error creating Razorpay order"
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Verification Errors">
+    ```javascript
+    // Missing required fields
+    {
+      "message": "required details fro verify payment"
+    }
+    
+    // User not found
+    {
+      "success": false,
+      "message": "User not found!"
+    }
+    
+    // Order not found in database
+    {
+      "message": "something went wrong! PLease Contact your team"
+    }
+    
+    // Order already processed
+    {
+      "message": "Your Oder ALready PRocessed"
+    }
+    
+    // Signature mismatch
+    {
+      "success": false,
+      "message": "Payment verification failed!"
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Renewal Errors">
+    ```javascript
+    // No previous subscription
+    {
+      "message": "you are not eligible for renew"
+    }
+    
+    // Renewal verification failed
+    {
+      "success": false,
+      "message": "Payment verification failed!"
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<Warning>
+Follow these critical security guidelines:
+</Warning>
+
+1. **Never expose KEY_SECRET**: Keep Razorpay secret in environment variables
+2. **Always verify server-side**: Never trust client payment success
+3. **Validate signature**: Use HMAC-SHA256 verification
+4. **Check order status**: Prevent duplicate processing
+5. **Use HTTPS**: All payment endpoints must use SSL
+6. **Implement rate limiting**: Prevent abuse of payment endpoints
+7. **Log all transactions**: Maintain audit trail
+8. **Handle failures gracefully**: Don't leak sensitive error details
+
+## Testing Payments
+
+Razorpay provides test mode for development:
+
+```bash
+# Test credentials
+KEY_ID=rzp_test_xxxxxxxxxxxxx
+KEY_SECRET=test_secret_key
+```
+
+### Test Card Numbers
+
+| Card Number | CVV | Expiry | Result |
+|-------------|-----|--------|--------|
+| 4111 1111 1111 1111 | Any | Future | Success |
+| 4012 0010 3714 8889 | Any | Future | Success |
+| 5555 5555 5555 4444 | Any | Future | Success |
+
+<Note>
+In development mode, subscriptions last 1 hour instead of the full duration for easier testing.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="View Plans" icon="money-bill" href="/billing/plans">
+    See pricing and features
+  </Card>
+  
+  <Card title="Invoices" icon="file-invoice" href="/billing/invoices">
+    Access billing history
+  </Card>
+  
+  <Card title="Usage Limits" icon="chart-bar" href="/billing/usage-limits">
+    Monitor plan quotas
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/subscriptions/init">
+    Payment API documentation
+  </Card>
+</CardGroup>

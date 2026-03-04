@@ -1,0 +1,503 @@
+---
+title: Invoices & Billing History
+description: Access and manage your payment history, invoices, and subscription records
+---
+
+## Overview
+
+DeployHub maintains a complete history of all your payments and subscriptions. All completed orders are stored and accessible through your account dashboard.
+
+<Note>
+Invoice data is retrieved from the CompletedOrder model defined in `/prototype/backend/src/models/slices/completedOrder.model.js:1`
+</Note>
+
+## Accessing Your Invoices
+
+You can view all your invoices through the API endpoint:
+
+```bash
+GET /api/user/invoices
+```
+
+<Info>
+Implementation: `/prototype/backend/src/controllers/slices/user/invoices.js:3`
+</Info>
+
+### API Response
+
+```javascript
+{
+  "data": [
+    {
+      "_id": "65a1b2c3d4e5f6g7h8i9j0k1",
+      "userid": "64f9e8d7c6b5a4f3e2d1c0b9",
+      "orderid": "order_rcptid_0.123456789",
+      "months": 12,
+      "amount": 862800,  // paise (₹8,628)
+      "plan": "pro",
+      "status": "completed",
+      "projectid": "65b2c3d4e5f6g7h8i9j0k1l2",
+      "createdAt": "2026-01-15T10:30:00.000Z",
+      "updatedAt": "2026-01-15T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+## Invoice Data Structure
+
+Each invoice contains the following information:
+
+<ParamField path="orderid" type="string" required>
+  Unique Razorpay order ID (e.g., `order_rcptid_0.123456789`)
+</ParamField>
+
+<ParamField path="amount" type="number" required>
+  Total amount paid in paise (divide by 100 for rupees)
+  
+  Example: `862800` paise = ₹8,628
+</ParamField>
+
+<ParamField path="months" type="number" required>
+  Subscription duration purchased
+  
+  Common values: 1, 3, 6, 12, 24
+</ParamField>
+
+<ParamField path="plan" type="string" required>
+  Subscription plan type
+  
+  Values: `"free"` or `"pro"`
+</ParamField>
+
+<ParamField path="status" type="string" required>
+  Payment status (always `"completed"` for invoices)
+</ParamField>
+
+<ParamField path="projectid" type="ObjectId">
+  Associated project ID created with this subscription
+</ParamField>
+
+<ParamField path="createdAt" type="Date">
+  Invoice creation timestamp
+</ParamField>
+
+<ParamField path="updatedAt" type="Date">
+  Last update timestamp
+</ParamField>
+
+## Invoice Controller Implementation
+
+The invoice retrieval logic is implemented as:
+
+```javascript
+// From /prototype/backend/src/controllers/slices/user/invoices.js
+import { Model } from "../../../models/index.js";
+
+const Invoice = async (req, res) => {
+  try {
+    const user = req.user;
+    
+    // Fetch all completed orders for the user
+    const invoices = await Model.CompletedOrder.find({ 
+      userid: user._id 
+    });
+    
+    return res.status(200).json({
+      data: invoices,
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      error: "Internal Server Error",
+    });
+  }
+};
+```
+
+<Info>
+The controller fetches all `CompletedOrder` records matching the authenticated user's ID.
+</Info>
+
+## CompletedOrder Schema
+
+Invoices are stored using the following Mongoose schema:
+
+```javascript
+// From completedOrder.model.js:3-30
+const completedorderschema = new mongoose.Schema({
+  userid: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+  orderid: {
+    type: String,
+    required: true
+  },
+  months: {
+    type: Number,
+    required: true
+  },
+  amount: {
+    type: Number
+  },
+  plan: {
+    type: String,
+  },
+  status: {
+    type: String,
+  },
+  projectid: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Project",
+  }
+}, { timestamps: true });
+```
+
+<Note>
+The `timestamps: true` option automatically adds `createdAt` and `updatedAt` fields.
+</Note>
+
+## Invoice Creation Flow
+
+Invoices are created during payment verification:
+
+<Steps>
+  <Step title="Payment Initiated">
+    User completes payment through Razorpay interface
+  </Step>
+  
+  <Step title="Payment Verified">
+    Server verifies Razorpay signature using HMAC-SHA256
+    
+    ```javascript
+    // From verify.controller.js:20-23
+    const generated_signature = crypto
+      .createHmac("sha256", process.env.KEY_SECRET)
+      .update(razorpay_order_id + "|" + razorpay_payment_id)
+      .digest("hex");
+    ```
+  </Step>
+  
+  <Step title="Order Completed">
+    System creates CompletedOrder record
+    
+    ```javascript
+    // From verify.controller.js:63-70
+    const payment = await Model.CompletedOrder.create({
+      userid: orderfromdb.userid,
+      orderid: orderfromdb.oderid,
+      months: orderfromdb.months,
+      amount: orderfromdb.amount,
+      plan: orderfromdb.plan,
+      status: "completed",
+    });
+    ```
+  </Step>
+  
+  <Step title="Project Created">
+    New project linked to the payment record
+    
+    ```javascript
+    // From verify.controller.js:73-79
+    const project = new Model.Project({
+      paymentId: payment._id,
+      plan: payment.plan,
+      startDate: now,
+      endDate: subscriptionend,
+      owner: req.user._id
+    });
+    ```
+  </Step>
+  
+  <Step title="Invoice Available">
+    CompletedOrder appears in user's invoice list immediately
+  </Step>
+</Steps>
+
+## Calculating Invoice Amounts
+
+Invoice amounts are calculated with volume discounts:
+
+```javascript
+// From init.controller.js:47-50
+const basePrice = parseInt(plans.basePrice); // 79900 paise
+const discountRates = plans.discount;
+const discount = discountRates[months] || 0;
+const finalAmount = parseInt(months * basePrice * (1 - discount / 100).toFixed(2));
+```
+
+### Example Calculations
+
+<Tabs>
+  <Tab title="1 Month">
+    ```javascript
+    months = 1
+    basePrice = 79900
+    discount = 0%
+    finalAmount = 1 × 79900 × (1 - 0/100)
+                = 79900 paise
+                = ₹799
+    ```
+  </Tab>
+  
+  <Tab title="12 Months">
+    ```javascript
+    months = 12
+    basePrice = 79900
+    discount = 10%
+    finalAmount = 12 × 79900 × (1 - 10/100)
+                = 12 × 79900 × 0.9
+                = 862800 paise
+                = ₹8,628
+    ```
+  </Tab>
+  
+  <Tab title="24 Months">
+    ```javascript
+    months = 24
+    basePrice = 79900
+    discount = 15%
+    finalAmount = 24 × 79900 × (1 - 15/100)
+                = 24 × 79900 × 0.85
+                = 1629360 paise
+                = ₹16,294
+    ```
+  </Tab>
+</Tabs>
+
+## Subscription Renewal Invoices
+
+When renewing a subscription, a new invoice is created:
+
+```javascript
+// From verifyRenew.js:57-63
+await Model.CompletedOrder.create({
+  userid: orderfromdb.userid,
+  oderid: orderfromdb.oderid,
+  months: orderfromdb.months,
+  amount: orderfromdb.amount,
+  status: 'completed'
+});
+```
+
+<Note>
+Renewal invoices preserve the original subscription duration (`months`) and pricing from the previous order.
+</Note>
+
+## Filtering and Sorting Invoices
+
+You can extend the invoice query with filters:
+
+<CodeGroup>
+
+```javascript Filter by Plan
+const invoices = await Model.CompletedOrder.find({ 
+  userid: user._id,
+  plan: "pro"
+}).sort({ createdAt: -1 });
+```
+
+```javascript Filter by Date Range
+const invoices = await Model.CompletedOrder.find({ 
+  userid: user._id,
+  createdAt: {
+    $gte: new Date('2026-01-01'),
+    $lte: new Date('2026-12-31')
+  }
+}).sort({ createdAt: -1 });
+```
+
+```javascript Get Latest Invoice
+const latestInvoice = await Model.CompletedOrder.findOne({ 
+  userid: user._id 
+}).sort({ createdAt: -1 });
+```
+
+```javascript Get Total Spent
+const result = await Model.CompletedOrder.aggregate([
+  { $match: { userid: user._id } },
+  { $group: { 
+    _id: null, 
+    total: { $sum: "$amount" } 
+  }}
+]);
+
+const totalSpent = result[0]?.total / 100; // Convert to rupees
+```
+
+</CodeGroup>
+
+## Invoice Status Lifecycle
+
+<Steps>
+  <Step title="Pending Order Created">
+    Initial order stored in `PendingOrder` collection
+    
+    ```javascript
+    status: "pending"
+    expires: 7200 seconds (2 hours)
+    ```
+  </Step>
+  
+  <Step title="Payment Processing">
+    User completes payment on Razorpay
+    
+    PendingOrder still exists with status "pending"
+  </Step>
+  
+  <Step title="Payment Verified">
+    Server confirms payment signature
+    
+    PendingOrder updated:
+    ```javascript
+    orderfromdb.status = "completed";
+    await orderfromdb.save({ validateBeforeSave: false });
+    ```
+  </Step>
+  
+  <Step title="Invoice Generated">
+    CompletedOrder created as permanent invoice record
+    
+    ```javascript
+    status: "completed"
+    // No expiry - permanent record
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+PendingOrder records auto-expire after 2 hours (7200 seconds) if payment is not completed. Only CompletedOrder records appear as invoices.
+</Warning>
+
+## Common Invoice Scenarios
+
+<AccordionGroup>
+  <Accordion title="First-time Pro Subscription">
+    When purchasing Pro for the first time:
+    
+    1. User selects plan duration (e.g., 12 months)
+    2. Payment processed through Razorpay
+    3. Invoice created with full amount (₹8,628 for 12 months)
+    4. Project created and linked to invoice
+    5. Subscription activated immediately
+  </Accordion>
+  
+  <Accordion title="Subscription Renewal">
+    When renewing an existing subscription:
+    
+    1. System retrieves previous order duration
+    2. Calculates renewal amount (same duration, no re-selection)
+    3. Payment processed
+    4. New invoice created
+    5. Subscription extended from previous end date
+    
+    <Info>
+    From `renewInfo.controller.js:7-14` - renewal uses previous subscription duration
+    </Info>
+  </Accordion>
+  
+  <Accordion title="Free Plan Projects">
+    Free plan projects do NOT generate invoices:
+    
+    ```javascript
+    // From init.controller.js:28-37
+    if (plan === 'free') {
+      const project = new Model.Project({
+        paymentId: null,  // No payment
+        owner: req.user._id,
+      });
+      
+      await project.save({ validateBeforeSave: false });
+      return res.json({ success: true, project });
+    }
+    ```
+    
+    No CompletedOrder created, no invoice generated.
+  </Accordion>
+  
+  <Accordion title="Failed Payments">
+    If payment verification fails:
+    
+    - PendingOrder remains with status "pending"
+    - NO CompletedOrder created
+    - NO invoice generated
+    - PendingOrder auto-expires after 2 hours
+    - User must retry payment
+  </Accordion>
+</AccordionGroup>
+
+## Downloading Invoice Data
+
+To export your invoices:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET https://api.deployhub.com/api/user/invoices \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Accept: application/json"
+```
+
+```javascript JavaScript
+const response = await fetch('/api/user/invoices', {
+  headers: {
+    'Authorization': `Bearer ${token}`,
+  }
+});
+
+const { data: invoices } = await response.json();
+
+// Convert to CSV
+const csv = invoices.map(inv => 
+  `${inv.orderid},${inv.amount/100},${inv.months},${inv.plan},${inv.createdAt}`
+).join('\n');
+```
+
+```python Python
+import requests
+import csv
+
+response = requests.get(
+    'https://api.deployhub.com/api/user/invoices',
+    headers={'Authorization': f'Bearer {token}'}
+)
+
+invoices = response.json()['data']
+
+# Export to CSV
+with open('invoices.csv', 'w') as f:
+    writer = csv.writer(f)
+    writer.writerow(['Order ID', 'Amount (₹)', 'Months', 'Plan', 'Date'])
+    for inv in invoices:
+        writer.writerow([
+            inv['orderid'],
+            inv['amount'] / 100,
+            inv['months'],
+            inv['plan'],
+            inv['createdAt']
+        ])
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Payment Methods" icon="credit-card" href="/billing/payment-methods">
+    Configure Razorpay integration
+  </Card>
+  
+  <Card title="Plans & Pricing" icon="money-bill" href="/billing/plans">
+    View available plans
+  </Card>
+  
+  <Card title="Usage Limits" icon="gauge" href="/billing/usage-limits">
+    Monitor resource quotas
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/user/invoices">
+    Integrate invoices API
+  </Card>
+</CardGroup>

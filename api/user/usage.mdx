@@ -1,0 +1,165 @@
+---
+title: "Usage Statistics"
+description: "Retrieve usage statistics and per-project request metrics"
+---
+
+## Get Usage Stats
+
+<RequestExample>
+```bash
+GET /api/usage
+```
+</RequestExample>
+
+Retrieves usage statistics for all projects owned by the authenticated user, sorted by total requests.
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the request was successful
+</ResponseField>
+
+<ResponseField name="totalRequests" type="number">
+  Cumulative total requests across all projects
+</ResponseField>
+
+<ResponseField name="projectStats" type="array">
+  Array of all projects with their usage statistics, sorted by totalRequest in descending order
+  
+  <Expandable title="project properties">
+    <ResponseField name="_id" type="string">
+      Project unique identifier
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Project name
+    </ResponseField>
+    
+    <ResponseField name="projectType" type="string">
+      Project type (e.g., `Static`, `static`, `node`)
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current project status (e.g., `live`, `stopped`)
+    </ResponseField>
+    
+    <ResponseField name="plan" type="string">
+      Subscription plan for the project
+    </ResponseField>
+    
+    <ResponseField name="totalRequest" type="number">
+      Total number of requests received by this project. Defaults to 0 if not set.
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string">
+      Last update timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseExample>
+```json
+{
+  "success": true,
+  "totalRequests": 145032,
+  "projectStats": [
+    {
+      "_id": "507f1f77bcf86cd799439012",
+      "name": "api-service",
+      "projectType": "node",
+      "status": "live",
+      "plan": "business",
+      "totalRequest": 89456,
+      "updatedAt": "2024-03-14T10:15:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439011",
+      "name": "my-portfolio",
+      "projectType": "Static",
+      "status": "live",
+      "plan": "pro",
+      "totalRequest": 25430,
+      "updatedAt": "2024-03-15T14:22:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439014",
+      "name": "blog",
+      "projectType": "Static",
+      "status": "live",
+      "plan": "pro",
+      "totalRequest": 12890,
+      "updatedAt": "2024-03-08T11:20:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439013",
+      "name": "docs-site",
+      "projectType": "static",
+      "status": "stopped",
+      "plan": "free",
+      "totalRequest": 1203,
+      "updatedAt": "2024-03-10T16:45:00.000Z"
+    },
+    {
+      "_id": "507f1f77bcf86cd799439015",
+      "name": "test-app",
+      "projectType": "node",
+      "status": "stopped",
+      "plan": "free",
+      "totalRequest": 0,
+      "updatedAt": "2024-02-28T08:30:00.000Z"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+## Implementation Details
+
+### Query Logic
+
+- Fetches all projects owned by the authenticated user
+- Excludes projects with status `deleted`
+- Results are sorted by `totalRequest` in descending order (highest usage first)
+- Uses lean queries for optimal performance
+
+### Selected Fields
+
+The query selects the following fields from the Project model:
+- name
+- projectType
+- status
+- totalRequest
+- plan
+- createdAt
+- updatedAt
+
+### Usage Calculation
+
+- **totalRequests**: Calculated using reduce to sum the `totalRequest` field across all projects
+- **projectStats**: Each project's `totalRequest` field defaults to 0 if not set or null
+- Projects with no requests will show `totalRequest: 0`
+
+### Use Cases
+
+- Monitor which projects are receiving the most traffic
+- Identify unused or low-traffic projects
+- Track overall platform usage across all deployments
+- Compare usage across different project types and plans
+- Make data-driven decisions about resource allocation
+
+### Error Response
+
+<ResponseExample>
+```json
+{
+  "success": false,
+  "message": "Failed to fetch usage stats"
+}
+```
+</ResponseExample>

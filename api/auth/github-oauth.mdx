@@ -1,0 +1,176 @@
+---
+title: 'GitHub OAuth'
+description: 'Authenticate users via GitHub OAuth 2.0'
+---
+
+## GET /api/auth/github
+
+Initiates the GitHub OAuth 2.0 authentication flow by redirecting users to GitHub's authorization page.
+
+### Query Parameters
+
+None required. The endpoint automatically constructs the authorization URL.
+
+### OAuth Scopes
+
+The following GitHub scopes are requested:
+- `repo` - Full control of private repositories
+- `user:email` - Access to user email addresses
+- `admin:repo_hook` - Full control of repository hooks
+
+### Response
+
+Redirects to GitHub's authorization page:
+```
+https://github.com/login/oauth/authorize?client_id={CLIENT_ID}&scope=repo user:email admin:repo_hook
+```
+
+### Example Request
+
+```bash
+curl -L https://api.deployhub.cloud/api/auth/github
+```
+
+### Notes
+
+- Users will be redirected to GitHub to authorize the application
+- After authorization, GitHub redirects back to `/api/auth/github/callback`
+- The `client_id` is configured via the `GITHUB_CLIENT_ID` environment variable
+
+---
+
+## GET /api/auth/github/callback
+
+Handles the OAuth callback from GitHub, exchanges the authorization code for an access token, and creates or updates the user account.
+
+### Query Parameters
+
+<ParamField query="code" type="string" required>
+  Authorization code provided by GitHub after user authorization
+</ParamField>
+
+### Process Flow
+
+1. Receives authorization code from GitHub
+2. Exchanges code for GitHub access token
+3. Fetches user profile from GitHub API
+4. Retrieves primary email address
+5. Creates new user or updates existing user
+6. Generates JWT tokens
+7. Sets authentication cookies
+8. Redirects to frontend application
+
+### Response
+
+Redirects to the frontend URL specified in `FRONTEND_URL` environment variable.
+
+### Cookies Set
+
+<ResponseField name="refreshToken" type="cookie">
+  **Expiry:** 8-9 days
+  
+  **Development:**
+  - httpOnly: true
+  - secure: false
+  - sameSite: Lax
+  - expires: 9 days
+  
+  **Production:**
+  - httpOnly: true
+  - secure: true
+  - sameSite: Strict
+  - domain: .deployhub.cloud
+  - expires: 8 days
+</ResponseField>
+
+<ResponseField name="AccessToken" type="cookie">
+  **Expiry:** 6-10 hours
+  
+  **Development:**
+  - httpOnly: true
+  - secure: false
+  - sameSite: Lax
+  - expires: 10 hours
+  
+  **Production:**
+  - httpOnly: true
+  - secure: true
+  - sameSite: Strict
+  - domain: .deployhub.cloud
+  - expires: 6 hours
+</ResponseField>
+
+### User Data Stored
+
+For new users:
+- `fullname` - GitHub name or login username
+- `email` - Primary email from GitHub
+- `githubId` - GitHub user ID
+- `githubUsername` - GitHub username
+- `githubAccessToken` - GitHub OAuth access token
+- `provider` - Set to "github"
+- `password` - Set to null (OAuth users don't have passwords)
+
+For existing users:
+- Updates `githubAccessToken`, `githubId`, `githubUsername`, and `provider`
+
+### Status Codes
+
+- `302` - Successful authentication, redirects to frontend
+- `400` - Missing code or GitHub authentication failed
+- `500` - GitHub OAuth failed
+
+### Error Responses
+
+<CodeGroup>
+```json 400 - Missing Code
+{
+  "message": "GitHub code missing"
+}
+```
+
+```json 400 - Token Failed
+{
+  "message": "GitHub token failed"
+}
+```
+
+```json 400 - Email Not Found
+{
+  "message": "Email not found in GitHub"
+}
+```
+
+```json 500 - OAuth Failed
+{
+  "message": "GitHub OAuth failed"
+}
+```
+</CodeGroup>
+
+### Example Usage
+
+Users don't typically call this endpoint directly. The flow is:
+
+1. User clicks "Login with GitHub" button
+2. Frontend redirects to `/api/auth/github`
+3. User authorizes on GitHub
+4. GitHub redirects to `/api/auth/github/callback?code=...`
+5. Backend processes OAuth and redirects to frontend
+
+### Environment Variables Required
+
+- `GITHUB_CLIENT_ID` - GitHub OAuth application client ID
+- `GITHUB_CLIENT_SECRET` - GitHub OAuth application client secret
+- `FRONTEND_URL` - Frontend application URL for redirect after authentication
+- `ACCESS_TOKEN_SECRET` - Secret for signing JWT access tokens
+- `REFRESH_TOKEN_SECRET` - Secret for signing JWT refresh tokens
+- `ACCESS_TOKEN_EXPIRY` - Access token expiration time
+- `REFRESH_TOKEN_EXPIRY` - Refresh token expiration time
+
+### Notes
+
+- GitHub users can access their repositories through the stored `githubAccessToken`
+- The token is updated on each login to ensure it remains valid
+- If a user already exists with the email, their account is updated to link with GitHub
+- No subscription is created during GitHub OAuth (unlike email registration)

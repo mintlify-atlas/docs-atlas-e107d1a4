@@ -1,0 +1,132 @@
+---
+title: 'Refresh Token'
+description: 'Obtain a new access token using a refresh token'
+---
+
+## GET /api/refresh/refreshtoken
+
+Generates a new access token using a valid refresh token from cookies. This endpoint allows clients to obtain fresh access tokens without requiring the user to log in again.
+
+### Cookies
+
+<ParamField cookie="refreshToken" type="string" required>
+  Valid JWT refresh token set during login or OAuth authentication
+</ParamField>
+
+### Response
+
+<ResponseField name="accessToken" type="string">
+  New JWT access token for API authentication
+</ResponseField>
+
+### Cookies Set
+
+<ResponseField name="RefreshToken" type="cookie">
+  The same refresh token is re-set in the cookie to maintain the session
+  
+  **Configuration:**
+  - Same settings as login cookies (8-9 days expiry)
+</ResponseField>
+
+### Status Codes
+
+- `200` - New access token generated successfully
+- `400` - Refresh token not received, invalid token, or token expired
+- `404` - User not found
+- `500` - Internal server error
+
+### Example Request
+
+```bash
+curl -X GET https://api.deployhub.cloud/api/refresh/refreshtoken \
+  -H "Cookie: refreshToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Example Response
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2NzgxMjM0NTY3ODkiLCJ2ZXJpZmllZCI6dHJ1ZSwiaWF0IjoxNzM2Mjg5NjAwLCJleHAiOjE3MzYzMTExMDB9.signature"
+}
+```
+
+### Error Responses
+
+<CodeGroup>
+```json 400 - Missing Token
+{
+  "message": "RefresToken NOt Received"
+}
+```
+
+```json 400 - Invalid Token
+{
+  "message": "Invalid Token"
+}
+```
+
+```json 400 - Token Expired
+{
+  "message": "Token Expired"
+}
+```
+
+```json 404 - User Not Found
+{
+  "message": "Invalid User"
+}
+```
+
+```json 500 - Server Error
+{
+  "error": "Internal Servver Error"
+}
+```
+</CodeGroup>
+
+### Validation Process
+
+1. Extract refresh token from HTTP-only cookie
+2. Verify JWT signature using `REFRESH_TOKEN_SECRET`
+3. Retrieve user from database using token payload
+4. Validate that the token matches the one stored in the database
+5. Generate a new access token
+6. Return new access token and refresh the cookie
+
+### Token Details
+
+**New Access Token JWT Payload:**
+```json
+{
+  "_id": "user_id",
+  "verified": true,
+  "iat": 1736289600,
+  "exp": 1736311100
+}
+```
+
+**Token Expiry:**
+- Access Token: 6-10 hours (depends on environment)
+- Refresh Token: 8-9 days (depends on environment)
+
+### Security Considerations
+
+- Refresh tokens are stored server-side and validated on each request
+- If the stored refresh token doesn't match the provided one, the request is rejected
+- This prevents token reuse after logout or token rotation
+- All tokens use HTTP-only cookies to prevent XSS attacks
+- Production tokens use `secure: true` and `sameSite: Strict` for enhanced security
+
+### Usage Pattern
+
+Clients should call this endpoint when:
+1. The access token expires (6-10 hours)
+2. API requests return `401 Unauthorized` due to expired access token
+3. Before making authenticated requests if the access token is near expiry
+
+### Notes
+
+- The refresh token itself is not rotated in this implementation
+- The endpoint uses GET method (though POST would be more RESTful for token generation)
+- The cookie name in the response is "RefreshToken" (note the capital 'T')
+- Refresh token validation is performed by comparing with the database value
